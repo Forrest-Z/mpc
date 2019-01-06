@@ -86,7 +86,7 @@ def get_waypoints(sparse):
 
 
 if __name__ == '__main__':
-    fname = '/home/md/carla/PythonClient/racetrack/ros/wp-2018-12-18-17-35-23.csv'
+    fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-35-23.csv'
     xs = []
     ys = []
     yaws = []
@@ -105,7 +105,7 @@ if __name__ == '__main__':
     publishers['centerline'] = rospy.Publisher('/centerline', Marker, queue_size=1)
     publishers['centerline_numpy'] = rospy.Publisher('/centerline_numpy', numpy_msg(Floats), queue_size=1)
 
-    distance = 0.5
+    distance = 0.25
     sparse = sparse_trajectory(xs, ys, yaws, speeds, distance)
 
     print('Original trajectory length:', len(xs))

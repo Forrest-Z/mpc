@@ -1,3 +1,4 @@
+// THIS IS ACTUALLY A TEMPLATE -- I WILL USE IT TO CREATE AN MPC NODE IN CPP
 #include <vector>
 #include <math.h> /* floor, abs */
 #include <assert.h>

@@ -185,7 +185,7 @@ class MPCController:
         epsi = -np.arctan(poly[-2])
 
         init = (0, 0, 0, v, cte, epsi) + tuple(poly)
-        self.state0 = self.get_state0(0, 0, 0, v, cte, epsi, self.steer, self.throttle, poly)
+        self.state0 = self.get_state0(v, cte, epsi, self.steer, self.throttle, poly)
         result = self.minimize_cost(self.bounds, self.state0, init)
 
 
@@ -205,11 +205,16 @@ class MPCController:
             'next_pos': self.next_pos,
         }
 
-    def get_state0(self, x, y, psi, v, cte, epsi, a, delta, poly):
+    def get_state0(self, v, cte, epsi, a, delta, poly):
         a = a or 0
         delta = delta or 0
+        # "Go as the road goes"
+        x = np.linspace(0, self.steps_ahead*self.dt*v, self.steps_ahead)
+        y = np.polyval(poly, x)
+        psi = 0
+
         self.state0[:self.steps_ahead] = x
-        self.state0[self.steps_ahead:2*self.steps_ahead] = np.polyval(poly, x)
+        self.state0[self.steps_ahead:2*self.steps_ahead] = y
         self.state0[2*self.steps_ahead:3*self.steps_ahead] = psi
         self.state0[3*self.steps_ahead:4*self.steps_ahead] = v
         self.state0[4*self.steps_ahead:5*self.steps_ahead] = cte
