@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import numpy as np
 from scipy.optimize import minimize
 from scipy.interpolate import splprep, splev
@@ -25,12 +26,13 @@ class _EqualityConstraints(object):
 
 
 class MPCController:
-    def __init__(self, target_speed, steps_ahead, dt):
+    def __init__(self, target_speed, steps_ahead, dt, logg):
         self.target_speed = target_speed
         self.state_vars = ('x', 'y', 'v', 'psi', 'cte', 'epsi')
 
         self.steps_ahead = steps_ahead
         self.dt = dt
+        self.logg = logg
 
         # Cost function coefficients
         # TODO(MD): take outside, preferably to a config
@@ -68,6 +70,7 @@ class MPCController:
         self.steer = None
         self.throttle = None
         self.next_pos = None
+        self.next_pos_poly = None
 
     def get_func_constraints_and_bounds(self):
         """The most important method of this class, defining the MPC's cost
@@ -183,6 +186,7 @@ class MPCController:
 
         cte = poly[-1]
         epsi = -np.arctan(poly[-2])
+        self.logg('cte={:.2f}, epsi={:.2f}'.format(cte, epsi))
 
         init = (0, 0, 0, v, cte, epsi) + tuple(poly)
         self.state0 = self.get_state0(v, cte, epsi, self.steer, self.throttle, poly)
@@ -195,6 +199,8 @@ class MPCController:
             self.next_pos = np.c_[next_x, next_y]
             self.steer = result.x[-self.steps_ahead]
             self.throttle = result.x[-2*self.steps_ahead]
+            x = np.arange(0, 2, 0.2)
+            self.next_pos_poly = np.c_[x, np.polyval(poly, x)]
         else:
             print('Unsuccessful optimization')
 
@@ -203,13 +209,15 @@ class MPCController:
             'throttle': self.throttle,
             'cost': result.fun,
             'next_pos': self.next_pos,
+            'next_pos_poly': self.next_pos_poly,
         }
 
     def get_state0(self, v, cte, epsi, a, delta, poly):
         a = a or 0
         delta = delta or 0
         # "Go as the road goes"
-        x = np.linspace(0, self.steps_ahead*self.dt*v, self.steps_ahead)
+        #x = np.linspace(0, self.steps_ahead*self.dt*v, self.steps_ahead)
+        x = np.linspace(0, 0.1, self.steps_ahead)
         y = np.polyval(poly, x)
         psi = 0
 
@@ -284,7 +292,8 @@ if __name__ == '__main__':
     mpc_controller = MPCController(
         target_speed=10,
         steps_ahead=10,
-        dt=0.1
+        dt=0.1,
+        logg=print
     )
 
     # Values for testing

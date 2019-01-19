@@ -160,7 +160,7 @@ class MPCControllerNode:
         return marker
 
     @staticmethod
-    def rot_euler(v, xyz, dim=2):
+    def rot_euler(v, xyz):
         '''Rotate vector v (or array of vectors) by the euler angles xyz '''
         # https://stackoverflow.com/questions/6802577/python-rotation-of-3d-vector
         v = np.r_[v, 0]
@@ -170,6 +170,7 @@ class MPCControllerNode:
 
     ### Callbacks ###
     def centerline_cb(self, data):
+        #
         # There are: x, y, yaw, speed in self.points -- I'm only interested in
         #  the first two
         self.points = data.data.reshape(-1, 4)[:, :2]  # TODO: magic number 4
@@ -195,7 +196,7 @@ if __name__ == '__main__':
     target_speed = config.TARGET_SPEED
     steps_ahead = config.STEPS_AHEAD
     dt = config.TIME_STEP
-    mpc_controller = MPCController(target_speed, steps_ahead, dt)
+    mpc_controller = MPCController(target_speed, steps_ahead, dt, rospy.loginfo)
 
     try:
         MPCControllerNode(mpc_controller)

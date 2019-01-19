@@ -105,7 +105,7 @@ if __name__ == '__main__':
     publishers['centerline'] = rospy.Publisher('/centerline', Marker, queue_size=1)
     publishers['centerline_numpy'] = rospy.Publisher('/centerline_numpy', numpy_msg(Floats), queue_size=1)
 
-    distance = 0.25
+    distance = 0.05
     sparse = sparse_trajectory(xs, ys, yaws, speeds, distance)
 
     print('Original trajectory length:', len(xs))
