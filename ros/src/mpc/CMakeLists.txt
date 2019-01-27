@@ -4,6 +4,9 @@ project(mpc)
 ## Compile as C++11, supported in ROS Kinetic and newer
 add_compile_options(-std=c++11)
 
+set(CXX_FLAGS "-Wall")
+set(CMAKE_CXX_FLAGS "${CXX_FLAGS}")
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -11,6 +14,7 @@ find_package(
     catkin REQUIRED COMPONENTS
     rospy
     roscpp
+    nav_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -103,7 +107,12 @@ find_package(
 ## LIBRARIES: libraries you create in this project that dependent projects also need
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
-catkin_package()
+catkin_package(
+   	CATKIN_DEPENDS
+  	roscpp
+  	rospy
+	nav_msgs
+)
 
 ###########
 ## Build ##
@@ -128,7 +137,7 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-add_executable(mpc_in_cpp src/mpc_in_cpp.cpp)
+add_executable(mpc_node_cpp src/mpc_node.cpp src/MPC.cpp)
 #add_executable(mpc_in_python scripts/mpc_in_python.py)
 
 ## Rename C++ executable without prefix
@@ -143,7 +152,8 @@ add_executable(mpc_in_cpp src/mpc_in_cpp.cpp)
 
 ## Specify libraries to link a library or executable target against
  target_link_libraries(
-  mpc_in_cpp
+  mpc_node_cpp
+  ipopt
   ${catkin_LIBRARIES}
 )
 

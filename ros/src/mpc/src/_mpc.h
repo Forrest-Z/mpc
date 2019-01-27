@@ -9,7 +9,7 @@
 #include <std_msgs/Float32.h>
 
 
-class MPCControllerNode {
+class MPCController {
 private:
 
     ///* The PWM signal that keeps the car heading straight

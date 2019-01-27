@@ -88,7 +88,7 @@ float UltimateRacer::steerMAX(std::vector<float> &scan, float width_margin) cons
 
     // First, prepare `segs`
     std::vector<int> segs = {180, scan_size - 180};
-    for (auto i = 1; i < scan_size; i++)
+    for (size_t i = 1; i < scan_size; i++)
         if (std::abs(scan[i] - scan[i - 1]) > NON_CONT_DIST) {
             segs.push_back(i);
             segs.push_back(i - 1);
@@ -97,9 +97,9 @@ float UltimateRacer::steerMAX(std::vector<float> &scan, float width_margin) cons
     // We're disregarding outskirts of the scan so that the car won't go backwards
     // (this happened when during a U-turn the car chose to go back because the
     // scan readings were higher than those down the track)
-    for (auto i = 0; i < scan_range_deleted; i++)
+    for (size_t i = 0; i < scan_range_deleted; i++)
         scan2[i] = -1;
-    for (auto i = scan2.size() - scan_range_deleted; i < scan2.size(); i++)
+    for (size_t i = scan2.size() - scan_range_deleted; i < scan2.size(); i++)
         scan2[i] = -1;
 
     while (!is_reachable) {

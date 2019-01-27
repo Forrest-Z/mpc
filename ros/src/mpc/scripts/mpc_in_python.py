@@ -33,6 +33,8 @@ class MPCControllerNode:
         self.psi = None
         self.orient_euler = None
 
+        self.mpc_controller = mpc_controller
+
         queue_size = common_queue_size or 1
 
         # Subscribers
@@ -81,8 +83,7 @@ class MPCControllerNode:
                 queue_size=queue_size,
             )
 
-
-        rospy.init_node('~mpc_controller')
+        rospy.init_node('~mpc_node_python')
 
         self.loop()
 
@@ -102,7 +103,7 @@ class MPCControllerNode:
             psi_OK = self.psi is not None
 
             if points_OK and speed_OK and position_OK and psi_OK:
-                mpc_results = mpc_controller.control(self.points, self.speed, self.position, self.psi)
+                mpc_results = self.mpc_controller.control(self.points, self.speed, self.position, self.psi)
                 self.publishers['/mpc/angle'].publish(mpc_results['steer'])
                 self.publishers['/mpc/throttle'].publish(mpc_results['throttle'])
 
