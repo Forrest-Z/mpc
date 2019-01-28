@@ -11,12 +11,9 @@
 #include "MPC.h"
 
 
-MPCControllerNode::MPCControllerNode(
-        const ros::NodeHandle & nodehandle,
-        int steps_ahead,
-        double dt,
-        double latency
-    ) : controller(steps_ahead, dt) {
+MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const Params & params)
+        : controller(params)
+{
 
     this->nh = nodehandle;
     this->old_time_ = ros::Time::now();
@@ -158,7 +155,7 @@ void MPCControllerNode::loop() {
             // coordinate system; these will be passed later on to polyfit
             Eigen::VectorXd xvals(pts_x.size());
             Eigen::VectorXd yvals(pts_y.size());
-            for (int i = 0; i < pts_x.size(); i++) {
+            for (size_t i = 0; i < pts_x.size(); i++) {
                 double dx = pts_x[i] - pos_x_lat;
                 double dy = pts_y[i] - pos_y_lat;
 
@@ -184,20 +181,16 @@ void MPCControllerNode::loop() {
             // Extract the actuator values
             steer = vars[0];
             throttle = vars[1];
+
+            double delta_between_callbacks = 1000 * (this->time_.toSec() - this->old_time_.toSec());
+            double delta_within_callback = 1000 * (ros::Time::now().toSec() - this->time_.toSec());
+            ROS_WARN(
+                    "dt_bet_cb: %.1f[ms] dt_in_cb: %.1f[ms]",
+                    delta_between_callbacks, delta_within_callback
+            );
         }
 
-//        Eigen::VectorXd state(6);
-//        state << 0, 0, 0, 0, 0, 0;
-//        Eigen::VectorXd coeffs(4);
-//        coeffs << 0, 1, 2, 3;
-//        auto vars = this->controller.Solve(state, coeffs);
-
-        double delta_between_callbacks = 1000 * (this->time_.toSec() - this->old_time_.toSec());
-        double delta_within_callback = 1000 * (ros::Time::now().toSec() - this->time_.toSec());
-        ROS_WARN(
-                "dt_bet_cb: %.1f[ms] dt_in_cb: %.1f[ms]",
-                delta_between_callbacks, delta_within_callback
-        );
+        ROS_WARN("No optimization");
 
         old_time_ = time_;
         ros::spinOnce();
@@ -205,27 +198,50 @@ void MPCControllerNode::loop() {
 }
 
 
+
 int main(int argc, char **argv) {
 
     ros::init(argc, argv, "mpc_node_cpp");
 
-    int steps_ahead = 10;
-    double dt = 0.1;
-    double latency = 0.01;
+    Params params;
 
-    if (argc == 4) {
-        steps_ahead = atoi(argv[1]);
-        dt = atof(argv[2]);
-        latency = atof(argv[3]);
+    int num_expected_args = 11;
+
+    if (argc == num_expected_args ) {
+        params.steps_ahead = atoi(argv[1]);
+        params.dt = atof(argv[2]);
+
+        params.latency = atof(argv[3]);
+
+        params.cte_coeff = atof(argv[4]);
+        params.epsi_coeff = atof(argv[5]);
+        params.speed_coeff = atof(argv[6]);
+        params.acc_coeff = atof(argv[7]);
+        params.steer_coeff = atof(argv[8]);
+
+        params.consec_acc_coeff = atof(argv[9]);
+        params.consec_steer_coeff = atof(argv[10]);
+
+    } else if (argc > num_expected_args ) {
+        std::cout << "Too many arguments passed to main\n";
+    } else {
+        std::cout << "Too few arguments passed to main\n";
     }
 
-    std::cout << "steps_ahead: " << steps_ahead
-              << " dt: " << dt
-              << " latency: " << latency
+    std::cout << "steps_ahead: " << params.steps_ahead
+              << " dt: " << params.dt
+              << " latency: " << params.latency << "[ms]"
+              << " cte_coeff: " << params.cte_coeff
+              << " epsi_coeff: " << params.epsi_coeff
+              << " speed_coeff: " << params.speed_coeff
+              << " acc_coeff: " << params.acc_coeff
+              << " steer_coeff: " << params.steer_coeff
+              << " consec_acc_coeff" << params.consec_acc_coeff
+              << " consec_steer_coeff: " << params.consec_steer_coeff
               << std::endl;
 
     ros::NodeHandle nh;
-    MPCControllerNode mpc_node(nh, steps_ahead, dt, latency);
+    MPCControllerNode mpc_node(nh, params);
 
     ros::Rate loop_rate(100);
 

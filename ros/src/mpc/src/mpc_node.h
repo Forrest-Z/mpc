@@ -74,12 +74,7 @@ private:
 
 
 public:
-    MPCControllerNode(
-            const ros::NodeHandle & nodehandle,
-            int steps_ahead,
-            double dt,
-            double latency
-    );
+    MPCControllerNode(const ros::NodeHandle & nodehandle, const Params & p);
 
     void loop();
 
