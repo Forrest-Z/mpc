@@ -12,50 +12,50 @@
 
 
 MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const Params & params)
-        : controller(params)
+        : m_controller(params)
 {
 
-    this->nh = nodehandle;
-    this->old_time_ = ros::Time::now();
-    this->last_stop_msg_ts = ros::Time::now().toSec();
+    m_nodehandle = nodehandle;
+    m_old_time = ros::Time::now();
+    m_last_stop_msg_ts = ros::Time::now().toSec();
 
-    this->pts_OK = false;
-    this->pos_OK = false;
-    this->speed_OK = false;
-    this->psi_OK = false;
+    m_pts_OK = false;
+    m_pos_OK = false;
+    m_speed_OK = false;
+    m_psi_OK = false;
 
     // Actuators
-    this->steer = 0; // TODO: get steering angle from VESC
-    this->throttle = 0; // TODO: get throttle from VESC
+    m_steer = 0; // TODO: get steering angle from VESC
+    m_throttle = 0; // TODO: get throttle from VESC
 
     // Advertisers
-    this->pub_angle = nh.advertise<std_msgs::Float32>(
+    m_pub_angle = m_nodehandle.advertise<std_msgs::Float32>(
             "/mpc/angle",
             1
     );
-    this->pub_throttle = nh.advertise<std_msgs::Float32>(
+    m_pub_throttle = m_nodehandle.advertise<std_msgs::Float32>(
             "/mpc/throttle",
             1
     );
-    this->pub_next_pos = nh.advertise<visualization_msgs::Marker>(
+    m_pub_next_pos = m_nodehandle.advertise<visualization_msgs::Marker>(
             "/mpc/next_pos",
             1
     );
 
     // Subscribers
-    this->sub_centerline = nh.subscribe(
+    m_sub_centerline = m_nodehandle.subscribe(
             "/centerline",
             1,
             &MPCControllerNode::centerline_cb,
             this
     );
-    this->sub_odom = nh.subscribe(
+    m_sub_odom = m_nodehandle.subscribe(
             "/odom",
             1,
             &MPCControllerNode::odom_cb,
             this
     );
-    this->sub_pf_pose_odom = nh.subscribe(
+    m_sub_pf_pose_odom = m_nodehandle.subscribe(
             "/pf/pose/odom",
             1,
             &MPCControllerNode::pf_pose_odom_cb,
@@ -67,17 +67,17 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
 void MPCControllerNode::centerline_cb(const visualization_msgs::Marker & data) {
     int num_points = data.points.size();
 
-    this->pts_x = std::vector<double>();
-    this->pts_x.reserve(num_points);
+    m_pts_x = std::vector<double>();
+    m_pts_x.reserve(num_points);
 
-    this->pts_y = std::vector<double>();
-    this->pts_y.reserve(num_points);
+    m_pts_y = std::vector<double>();
+    m_pts_y.reserve(num_points);
 
     for (auto & p : data.points) {
-        this->pts_x.push_back(p.x);
-        this->pts_y.push_back(p.y);
+        m_pts_x.push_back(p.x);
+        m_pts_y.push_back(p.y);
     }
-    this->pts_OK = true;
+    m_pts_OK = true;
 }
 
 
@@ -121,43 +121,43 @@ visualization_msgs::Marker MPCControllerNode::get_marker(const std::vector<doubl
 
 
 void MPCControllerNode::odom_cb(const nav_msgs::Odometry & data) {
-    this->speed = data.twist.twist.linear.x;
-    this->speed_OK = true;
+    m_speed = data.twist.twist.linear.x;
+    m_speed_OK = true;
 }
 
 
 void MPCControllerNode::pf_pose_odom_cb(const nav_msgs::Odometry & data) {
-    this->pos_x = data.pose.pose.position.x;
-    this->pos_y = data.pose.pose.position.y;
-    this->pos_OK = true;
+    m_pos_x = data.pose.pose.position.x;
+    m_pos_y = data.pose.pose.position.y;
+    m_pos_OK = true;
 
     // Calculate the psi Euler angle
     // (source: https://en.wikipedia.org/wiki/Conversion_between_quaternions_and_Euler_angles)
     auto o = data.pose.pose.orientation;
     double siny_cosp = 2.0 * (o.w * o.z + o.x * o.y);
     double cosy_cosp = 1.0 - 2.0 * (o.y * o.y + o.z * o.z);
-    this->psi = atan2(siny_cosp, cosy_cosp);
-    this->psi_OK = true;
+    m_psi = atan2(siny_cosp, cosy_cosp);
+    m_psi_OK = true;
 }
 
 
 void MPCControllerNode::loop() {
-    while (this->nh.ok()) {
-        this->time_ = ros::Time::now();
+    while (m_nodehandle.ok()) {
+        m_time = ros::Time::now();
 
-        if (this->pts_OK and this->speed_OK and this->pos_OK and this->psi_OK) {
-            double v_lat = this->speed + this->latency * this->throttle;
-            double psi_lat = this->psi - this->latency * (v_lat * this->steer / Lf());
-            double pos_x_lat = this->pos_x  + this->latency * (v_lat * cos(psi_lat));
-            double pos_y_lat = this->pos_y  + this->latency * (v_lat * sin(psi_lat));
+        if (m_pts_OK and m_speed_OK and m_pos_OK and m_psi_OK) {
+            double v_lat = m_speed + m_latency * m_throttle;
+            double psi_lat = m_psi - m_latency * (v_lat * m_steer / Lf());
+            double pos_x_lat = m_pos_x  + m_latency * (v_lat * cos(psi_lat));
+            double pos_y_lat = m_pos_y  + m_latency * (v_lat * sin(psi_lat));
 
             // Before we get the actuators, we need to calculate points in car's
             // coordinate system; these will be passed later on to polyfit
-            Eigen::VectorXd xvals(pts_x.size());
-            Eigen::VectorXd yvals(pts_y.size());
-            for (size_t i = 0; i < pts_x.size(); i++) {
-                double dx = pts_x[i] - pos_x_lat;
-                double dy = pts_y[i] - pos_y_lat;
+            Eigen::VectorXd xvals(m_pts_x.size());
+            Eigen::VectorXd yvals(m_pts_y.size());
+            for (size_t i = 0; i < m_pts_x.size(); i++) {
+                double dx = m_pts_x[i] - pos_x_lat;
+                double dy = m_pts_y[i] - pos_y_lat;
 
                 // Rotation around the origin
                 xvals[i] = dx * cos(-psi_lat) - dy * sin(-psi_lat);
@@ -176,14 +176,14 @@ void MPCControllerNode::loop() {
             // And now we're ready to calculate the actuators using the MPC
             Eigen::VectorXd state(6);
             state << 0, 0, 0, v_lat, cte, epsi;
-            auto vars = this->controller.Solve(state, coeffs);
+            auto vars = m_controller.Solve(state, coeffs);
 
             // Extract the actuator values
-            steer = vars[0];
-            throttle = vars[1];
+            m_steer = vars[0];
+            m_throttle = vars[1];
 
-            double delta_between_callbacks = 1000 * (this->time_.toSec() - this->old_time_.toSec());
-            double delta_within_callback = 1000 * (ros::Time::now().toSec() - this->time_.toSec());
+            double delta_between_callbacks = 1000 * (m_time.toSec() - m_old_time.toSec());
+            double delta_within_callback = 1000 * (ros::Time::now().toSec() - m_time.toSec());
             ROS_WARN(
                     "dt_bet_cb: %.1f[ms] dt_in_cb: %.1f[ms]",
                     delta_between_callbacks, delta_within_callback
@@ -192,7 +192,7 @@ void MPCControllerNode::loop() {
 
         ROS_WARN("No optimization");
 
-        old_time_ = time_;
+        m_old_time = m_time;
         ros::spinOnce();
     }
 }
@@ -224,8 +224,10 @@ int main(int argc, char **argv) {
 
     } else if (argc > num_expected_args ) {
         std::cout << "Too many arguments passed to main\n";
+        return 0;
     } else {
         std::cout << "Too few arguments passed to main\n";
+        return 0;
     }
 
     std::cout << "steps_ahead: " << params.steps_ahead
@@ -238,10 +240,16 @@ int main(int argc, char **argv) {
               << " steer_coeff: " << params.steer_coeff
               << " consec_acc_coeff" << params.consec_acc_coeff
               << " consec_steer_coeff: " << params.consec_steer_coeff
-              << std::endl;
+              << "\n";
 
-    ros::NodeHandle nh;
-    MPCControllerNode mpc_node(nh, params);
+    if (params.latency > 1)
+        std::cout << "Latency passed to main is > 1."
+                  << " However, it should be in seconds, isn't "
+                  << latency
+                  << " too high?\n";
+
+    ros::NodeHandle nodehandle;
+    MPCControllerNode mpc_node(nodehandle, params);
 
     ros::Rate loop_rate(100);
 

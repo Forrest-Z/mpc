@@ -54,7 +54,7 @@ double Lf() { return 0.325; }
 
 // Both the reference cross track and orientation errors are 0.
 // The reference velocity is set to 40 mph.
-double ref_v() { return 90; }
+double ref_v() { return 1; }
 
 // Delta constraint (on the steering angle)
 double delta_constraint() { return 25; }
@@ -63,16 +63,14 @@ double delta_constraint() { return 25; }
 class FG_eval {
 public:
     // Fitted polynomial coefficients
-    Eigen::VectorXd coeffs;
+    Eigen::VectorXd m_coeffs;
 
     Params m_params;
     Indexes m_indexes;
 
     FG_eval(Eigen::VectorXd coeffs, const Params & params, const Indexes & indexes)
-        : m_params(params), m_indexes(indexes)
-    {
-        this->coeffs = coeffs;
-    }
+        : m_coeffs(coeffs), m_params(params), m_indexes(indexes)
+    {}
 
     typedef CPPAD_TESTVECTOR(AD<double>) ADvector;
 
@@ -83,27 +81,22 @@ public:
 
         // The part of the cost based on the reference state.
         for (size_t t = 0; t < m_params.steps_ahead; t++) {
-            fg[0] += 4000 * CppAD::pow(vars[m_indexes.cte_start + t], 2);
-            fg[0] += 4000 * CppAD::pow(vars[m_indexes.epsi_start + t], 2);
-            fg[0] += 2 * CppAD::pow(vars[m_indexes.v_start + t] - ref_v(), 2);
+            fg[0] += m_params.cte_coeff * CppAD::pow(vars[m_indexes.cte_start + t], 2);
+            fg[0] += m_params.epsi_coeff * CppAD::pow(vars[m_indexes.epsi_start + t], 2);
+            fg[0] += m_params.speed_coeff * CppAD::pow(vars[m_indexes.v_start + t] - ref_v(), 2);
         }
 
         // Minimize the use of actuators.
         for (size_t t = 0; t < m_params.steps_ahead - 1; t++) {
-            fg[0] += CppAD::pow(vars[m_indexes.delta_start + t], 2);
-            fg[0] += CppAD::pow(vars[m_indexes.a_start + t], 2);
+            fg[0] += m_params.steer_coeff * CppAD::pow(vars[m_indexes.delta_start + t], 2);
+            fg[0] += m_params.acc_coeff * CppAD::pow(vars[m_indexes.a_start + t], 2);
         }
 
         // Minimize the value gap between sequential actuations.
         for (size_t t = 0; t < m_params.steps_ahead - 2; t++) {
-            fg[0] += 150 * CppAD::pow(vars[m_indexes.delta_start + t + 1] - vars[m_indexes.delta_start + t], 2);
-            fg[0] += 5 * CppAD::pow(vars[m_indexes.a_start + t + 1] - vars[m_indexes.a_start + t], 2);
+            fg[0] += m_params.consec_steer_coeff * CppAD::pow(vars[m_indexes.delta_start + t + 1] - vars[m_indexes.delta_start + t], 2);
+            fg[0] += m_params.consec_acc_coeff * CppAD::pow(vars[m_indexes.a_start + t + 1] - vars[m_indexes.a_start + t], 2);
         }
-
-        //
-        // Setup Constraints
-        //
-        // NOTE: In this section you'll setup the model constraints.
 
         // Initial constraints
         //
@@ -139,15 +132,13 @@ public:
             AD<double> delta0 = vars[m_indexes.delta_start + t - 1];
             AD<double> a0 = vars[m_indexes.a_start + t - 1];
 
-            AD<double> f0 = coeffs[0] +
-                            coeffs[1] * x0 +
-                            coeffs[2] * x0 * x0 +
-                            coeffs[3] * x0 * x0 * x0;
-            AD<double> psides0 = CppAD::atan(
-                    coeffs[1] +
-                    coeffs[2] * 2 * x0 +
-                    coeffs[3] * 3 * x0 * x0
-            );
+            AD<double> f0 = m_coeffs[0] +
+                            m_coeffs[1] * x0 +
+                            m_coeffs[2] * x0 * x0 +
+                            m_coeffs[3] * x0 * x0 * x0;
+            AD<double> psides0 = CppAD::atan(m_coeffs[1] +
+                                             m_coeffs[2] * 2 * x0 +
+                                             m_coeffs[3] * 3 * x0 * x0);
 
             // Here's `x` to get you started.
             // The idea here is to constraint this value to be 0.

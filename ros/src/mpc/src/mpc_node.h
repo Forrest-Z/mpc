@@ -19,25 +19,26 @@ class MPCControllerNode {
 private:
 
     ///* Time variables used to "benchmark" the callbacks and to keep track of
-    // how long has it been since the last contact with the master control
-    ros::Time time_, old_time_;
-    double last_stop_msg_ts;
+    ///* how long has it been since the last contact with the master control
+    ros::Time m_time;
+    ros::Time m_old_time;
+    double m_last_stop_msg_ts;
 
     ///* ROS-related
-    ros::NodeHandle nh;
+    ros::NodeHandle m_nodehandle;
 
     ///* Publisher for the ESC, and the second one: for the servo
-    ros::Publisher pub_angle;
-    ros::Publisher pub_throttle;
-    ros::Publisher pub_next_pos;
+    ros::Publisher m_pub_angle;
+    ros::Publisher m_pub_throttle;
+    ros::Publisher m_pub_next_pos;
 
     ///* Subscribers for the readings of the lidar, and the second one: for an emergency stop signal
-    ros::Subscriber sub_centerline;
-    ros::Subscriber sub_odom;
-    ros::Subscriber sub_pf_pose_odom;
+    ros::Subscriber m_sub_centerline;
+    ros::Subscriber m_sub_odom;
+    ros::Subscriber m_sub_pf_pose_odom;
 
     ///* The Model Predictive controller
-    MPC controller;
+    MPC m_controller;
 
     ///* Callbacks
     void centerline_cb(const visualization_msgs::Marker & data);
@@ -50,32 +51,31 @@ private:
     visualization_msgs::Marker get_marker(const std::vector<double> & mpc_xvals, const std::vector<double> & mpc_yvals);
 
     ///* Non-ROS members
-    std::vector<double> pts_x;
-    std::vector<double> pts_y;
-    bool pts_OK;
+    std::vector<double> m_pts_x;
+    std::vector<double> m_pts_y;
+    bool m_pts_OK;
 
-    double pos_x;
-    double pos_y;
-    bool pos_OK;
+    double m_pos_x;
+    double m_pos_y;
+    bool m_pos_OK;
 
-    double speed;
-    bool speed_OK;
+    double m_speed;
+    bool m_speed_OK;
 
-    double psi;
-    bool psi_OK;
+    double m_psi;
+    bool m_psi_OK;
 
 
     // TODO(MD): declare as NaNs and then use `isnan`
-    double steer;
-    double throttle;
+    double m_steer;
+    double m_throttle;
 
     ///* Other member attributes
-    double latency;
+    double m_latency;
 
 
 public:
-    MPCControllerNode(const ros::NodeHandle & nodehandle, const Params & p);
+    MPCControllerNode(const ros::NodeHandle & nodehandle, const Params & params);
 
     void loop();
-
 };
