@@ -5,7 +5,7 @@
 #include "Eigen-3.3/Eigen/QR"
 
 
-Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order);
+Eigen::VectorXd polyfit(Eigen::VectorXd & xvals, Eigen::VectorXd & yvals, int order);
 
 
 double polyeval(Eigen::VectorXd coeffs, double x);
@@ -25,6 +25,8 @@ struct Params {
 
     double consec_acc_coeff;
     double consec_steer_coeff;
+
+    bool debug;
 };
 
 

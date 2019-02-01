@@ -48,7 +48,9 @@ private:
     void pf_pose_odom_cb(const nav_msgs::Odometry & data);
 
     ///* Other methods
-    visualization_msgs::Marker get_marker(const std::vector<double> & mpc_xvals, const std::vector<double> & mpc_yvals);
+    visualization_msgs::Marker get_marker(const std::vector<double> & vars, double px_lat, double py_lat, double sin_psi_lat, double cos_psi_lat);
+
+    int find_closest(const std::vector<double> & pts_x, const std::vector<double> & pts_y, double pos_x, double pos_y);
 
     ///* Non-ROS members
     std::vector<double> m_pts_x;
@@ -65,13 +67,19 @@ private:
     double m_psi;
     bool m_psi_OK;
 
+    bool m_debug;
 
-    // TODO(MD): declare as NaNs and then use `isnan`
     double m_steer;
     double m_throttle;
 
     ///* Other member attributes
     double m_latency;
+
+    ///* When fitting a degree=3 polynomial to the waypoints we're using
+    ///* (STEPS_POLY * 3) points ahead to fit it (impacts smoothness)
+    static constexpr int STEPS_POLY = 15;
+
+    static constexpr int POLY_DEGREE = 3;
 
 
 public:

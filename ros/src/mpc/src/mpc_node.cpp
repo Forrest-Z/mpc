@@ -1,5 +1,6 @@
 #include <math.h> /* floor, abs */
 #include <cmath> /* atan2 */
+#include <string>
 
 #include <ros/ros.h>
 #include <ros/console.h>
@@ -24,6 +25,8 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
     m_speed_OK = false;
     m_psi_OK = false;
 
+    m_debug = params.debug;
+
     // Actuators
     m_steer = 0; // TODO: get steering angle from VESC
     m_throttle = 0; // TODO: get throttle from VESC
@@ -37,10 +40,13 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
             "/mpc/throttle",
             1
     );
-    m_pub_next_pos = m_nodehandle.advertise<visualization_msgs::Marker>(
-            "/mpc/next_pos",
-            1
-    );
+    if (m_debug) {
+        m_pub_next_pos = m_nodehandle.advertise<visualization_msgs::Marker>(
+                "/mpc/next_pos_cpp",
+                1
+        );
+    }
+
 
     // Subscribers
     m_sub_centerline = m_nodehandle.subscribe(
@@ -81,7 +87,12 @@ void MPCControllerNode::centerline_cb(const visualization_msgs::Marker & data) {
 }
 
 
-visualization_msgs::Marker MPCControllerNode::get_marker(const std::vector<double> & mpc_xvals, const std::vector<double> & mpc_yvals) {
+visualization_msgs::Marker MPCControllerNode::get_marker(
+        const std::vector<double> & vars,
+        double pos_x_lat, double pos_y_lat,
+        double sin_psi_lat, double cos_psi_lat
+
+    ) {
     visualization_msgs::Marker marker;
     marker.header.frame_id = "/map";
     marker.header.stamp = ros::Time::now();
@@ -102,16 +113,23 @@ visualization_msgs::Marker MPCControllerNode::get_marker(const std::vector<doubl
     marker.pose.orientation.w = 1.0;
 
     marker.color.a = 0.7;
-    marker.color.r = 1.0f;
+    marker.color.r = 0.0f;
     marker.color.g = 0.0f;
-    marker.color.b = 0.0f;
+    marker.color.b = 1.0f;
 
     marker.lifetime = ros::Duration();
 
-    for (int i=0; mpc_xvals.size(); i++) {
+    // The first two values are the actuators
+    marker.points.reserve((vars.size() - 2) / 2);
+
+    for (size_t i=2; i < vars.size(); i+=2) {
         geometry_msgs::Point p;
-        p.x = mpc_xvals[i];
-        p.y = mpc_yvals[i];
+        double x = vars[i];
+        double y = vars[i+1];
+        x =  x * cos_psi_lat + y * sin_psi_lat;
+        y = -x * sin_psi_lat + y * cos_psi_lat;
+        p.x = x + pos_x_lat;
+        p.y = y + pos_y_lat;
         p.z = 0.0f;
         marker.points.push_back(p);
     }
@@ -151,17 +169,33 @@ void MPCControllerNode::loop() {
             double pos_x_lat = m_pos_x  + m_latency * (v_lat * cos(psi_lat));
             double pos_y_lat = m_pos_y  + m_latency * (v_lat * sin(psi_lat));
 
+            int closest_idx = find_closest(m_pts_x, m_pts_y, pos_x_lat, pos_y_lat);
+            size_t num_closest_points = POLY_DEGREE+1;
+            std::vector<double> closest_pts_x;
+            closest_pts_x.reserve(num_closest_points);
+            std::vector<double> closest_pts_y;
+            closest_pts_y.reserve(num_closest_points);
+            for (size_t i=0; i < num_closest_points; i++) {
+                int idx = (closest_idx + i*STEPS_POLY) % m_pts_x.size();
+                closest_pts_x.push_back(m_pts_x[idx]);
+                closest_pts_y.push_back(m_pts_y[idx]);
+            }
+
             // Before we get the actuators, we need to calculate points in car's
             // coordinate system; these will be passed later on to polyfit
-            Eigen::VectorXd xvals(m_pts_x.size());
-            Eigen::VectorXd yvals(m_pts_y.size());
-            for (size_t i = 0; i < m_pts_x.size(); i++) {
-                double dx = m_pts_x[i] - pos_x_lat;
-                double dy = m_pts_y[i] - pos_y_lat;
+            Eigen::VectorXd xvals(num_closest_points);
+            Eigen::VectorXd yvals(num_closest_points);
+            double sin_psi_lat = sin(psi_lat);
+            double cos_psi_lat = cos(psi_lat);
+            for (size_t i = 0; i < num_closest_points; i++) {
+                double dx = closest_pts_x[i] - pos_x_lat;
+                double dy = closest_pts_y[i] - pos_y_lat;
 
                 // Rotation around the origin
-                xvals[i] = dx * cos(-psi_lat) - dy * sin(-psi_lat);
-                yvals[i] = dx * sin(-psi_lat) + dy * cos(-psi_lat);
+//                xvals[i] = dx * cos(-psi_lat) - dy * sin(-psi_lat);
+//                yvals[i] = dx * sin(-psi_lat) + dy * cos(-psi_lat);
+                xvals[i] =  dx * cos_psi_lat + dy * sin_psi_lat;
+                yvals[i] = -dx * sin_psi_lat + dy * cos_psi_lat;
             }
 
             // Here we calculate the fit to the points in *car's coordinate system*
@@ -173,6 +207,10 @@ void MPCControllerNode::loop() {
             // ... and psi's error
             double epsi = -atan(coeffs[1]);
 
+            ROS_WARN("closest_idx: %d", closest_idx);
+            ROS_WARN("closest_pts_x[0]: %.2f, closest_pts_y[0]: %.2f", closest_pts_x[0], closest_pts_y[0]);
+            ROS_WARN("CTE: %.2f, ePsi: %.2f, psi: %.2f", cte, epsi, m_psi);
+
             // And now we're ready to calculate the actuators using the MPC
             Eigen::VectorXd state(6);
             state << 0, 0, 0, v_lat, cte, epsi;
@@ -182,19 +220,50 @@ void MPCControllerNode::loop() {
             m_steer = vars[0];
             m_throttle = vars[1];
 
-            double delta_between_callbacks = 1000 * (m_time.toSec() - m_old_time.toSec());
-            double delta_within_callback = 1000 * (ros::Time::now().toSec() - m_time.toSec());
+            for (size_t i=2; i < vars.size(); i+=2) {
+                vars[i] = i*0.1;
+                vars[i+1] = polyeval(coeffs, i*0.1);
+            }
+
+
+            if (m_debug) {
+                auto next_pos_marker = get_marker(vars, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat);
+                m_pub_next_pos.publish(next_pos_marker);
+            }
+
+            double delta_between_callbacks = (m_time.toSec() - m_old_time.toSec());
+            double delta_within_callback = (ros::Time::now().toSec() - m_time.toSec());
             ROS_WARN(
-                    "dt_bet_cb: %.1f[ms] dt_in_cb: %.1f[ms]",
+                    "dt_bet_cb: %.3f[s] dt_in_cb: %.3f[s]",
                     delta_between_callbacks, delta_within_callback
             );
-        }
 
-        ROS_WARN("No optimization");
+        } else {
+            ROS_WARN(
+                    "No optimization, m_pts_OK: %d, m_speed_OK: %d, m_pos_OK: %d, m_psi_OK: %d",
+                    m_pts_OK, m_speed_OK, m_pos_OK, m_psi_OK
+            );
+        }
 
         m_old_time = m_time;
         ros::spinOnce();
     }
+}
+
+
+int MPCControllerNode::find_closest(const std::vector<double> & pts_x, const std::vector<double> & pts_y, double pos_x, double pos_y) {
+    int closest_idx = -1;
+    double closest_dist = 999999999;
+    for (size_t i=0; i < pts_x.size(); i++) {
+        double diff_x = (pts_x[i] - pos_x);
+        double diff_y = (pts_y[i] - pos_y);
+        double dist = diff_x*diff_x + diff_y*diff_y;
+        if (dist < closest_dist) {
+            closest_idx = i;
+            closest_dist = dist;
+        }
+    }
+    return closest_idx;
 }
 
 
@@ -205,7 +274,7 @@ int main(int argc, char **argv) {
 
     Params params;
 
-    int num_expected_args = 11;
+    int num_expected_args = 12;
 
     if (argc == num_expected_args ) {
         params.steps_ahead = atoi(argv[1]);
@@ -222,17 +291,30 @@ int main(int argc, char **argv) {
         params.consec_acc_coeff = atof(argv[9]);
         params.consec_steer_coeff = atof(argv[10]);
 
+        std::string debug_msg(argv[11]);
+        if (debug_msg == "true") {
+            params.debug = true;
+        } else if (debug_msg == "false") {
+            params.debug = false;
+        } else {
+            std::cout << "The debug argument should either be \"true\" or \"false\""
+                      << " and you passed "
+                      << argv[11]
+                      << "\n";
+            return 1;
+        }
+
     } else if (argc > num_expected_args ) {
         std::cout << "Too many arguments passed to main\n";
-        return 0;
+        return 1;
     } else {
         std::cout << "Too few arguments passed to main\n";
-        return 0;
+        return 1;
     }
 
     std::cout << "steps_ahead: " << params.steps_ahead
               << " dt: " << params.dt
-              << " latency: " << params.latency << "[ms]"
+              << " latency: " << params.latency << "[s]"
               << " cte_coeff: " << params.cte_coeff
               << " epsi_coeff: " << params.epsi_coeff
               << " speed_coeff: " << params.speed_coeff
@@ -240,12 +322,13 @@ int main(int argc, char **argv) {
               << " steer_coeff: " << params.steer_coeff
               << " consec_acc_coeff" << params.consec_acc_coeff
               << " consec_steer_coeff: " << params.consec_steer_coeff
+              << " debug: " << params.debug
               << "\n";
 
     if (params.latency > 1)
         std::cout << "Latency passed to main is > 1."
                   << " However, it should be in seconds, isn't "
-                  << latency
+                  << params.latency
                   << " too high?\n";
 
     ros::NodeHandle nodehandle;

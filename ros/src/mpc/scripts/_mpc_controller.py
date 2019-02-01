@@ -186,7 +186,7 @@ class MPCController:
 
         cte = poly[-1]
         epsi = -np.arctan(poly[-2])
-        self.logg('cte={:.2f}, epsi={:.2f}'.format(cte, epsi))
+        self.logg('cte={:.2f}, epsi={:.2f}, psi={:.2f}'.format(cte, epsi, psi))
 
         init = (0, 0, 0, v, cte, epsi) + tuple(poly)
         self.state0 = self.get_state0(v, cte, epsi, self.steer, self.throttle, poly)

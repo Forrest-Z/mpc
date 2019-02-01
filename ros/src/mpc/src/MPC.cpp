@@ -9,7 +9,7 @@ using CppAD::AD;
 // Fit a polynomial.
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
-Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order) {
+Eigen::VectorXd polyfit(Eigen::VectorXd & xvals, Eigen::VectorXd & yvals, int order) {
     assert(xvals.size() == yvals.size());
     assert(order >= 1 && order <= xvals.size() - 1);
     Eigen::MatrixXd A(xvals.size(), order + 1);
@@ -278,13 +278,13 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 
     // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
     // creates a 2 element double vector.
-    return {
-            solution.x[m_indexes.delta_start], solution.x[m_indexes.a_start],
-            solution.x[m_indexes.x_start], solution.x[m_indexes.y_start],
-            solution.x[m_indexes.x_start + 1], solution.x[m_indexes.y_start + 1],
-            solution.x[m_indexes.x_start + 2], solution.x[m_indexes.y_start + 2],
-            solution.x[m_indexes.x_start + 3], solution.x[m_indexes.y_start + 3],
-            solution.x[m_indexes.x_start + 4], solution.x[m_indexes.y_start + 4],
-            solution.x[m_indexes.x_start + 5], solution.x[m_indexes.y_start + 5],
-    };
+    std::vector<double> result;
+    result.reserve(2 + 2*m_params.steps_ahead);
+    result.push_back(solution.x[m_indexes.delta_start]);
+    result.push_back(solution.x[m_indexes.a_start]);
+    for (size_t i=0; i < m_params.steps_ahead; i++) {
+        result.push_back(solution.x[m_indexes.x_start + i]);
+        result.push_back(solution.x[m_indexes.y_start + i]);
+    }
+    return result;
 }

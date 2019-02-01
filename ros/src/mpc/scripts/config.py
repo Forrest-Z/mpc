@@ -24,7 +24,7 @@ TARGET_SPEED = 1
 STEPS_POLY = 15
 
 # For the optimizer
-STEPS_AHEAD = 25
+STEPS_AHEAD = 20
 TIME_STEP = 0.1
 TOLERANCE = 0.1
 # Higher tolerance means that the minimization ends after
