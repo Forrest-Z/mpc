@@ -6,7 +6,7 @@
 
 #include <ros/ros.h>
 #include <std_msgs/UInt16.h>
-#include <std_msgs/Float32.h>
+#include <std_msgs/Float64.h>
 #include <visualization_msgs/Marker.h>
 #include <geometry_msgs/Point.h>
 #include <nav_msgs/Odometry.h>
@@ -49,6 +49,8 @@ private:
 
     void pf_pose_odom_cb(const nav_msgs::Odometry & data);
 
+    void commands_servo_position_cb(const std_msgs::Float64 & data);
+
     ///* Other methods
     visualization_msgs::Marker get_marker(const std::vector<double> & vars, double px_lat, double py_lat, double sin_psi_lat, double cos_psi_lat, float red, float green, float blue);
 
@@ -76,6 +78,7 @@ private:
 
     ///* Other member attributes
     double m_latency;
+    double m_commands_servo_position;
 
     ///* When fitting a degree=3 polynomial to the waypoints we're using
     ///* (STEPS_POLY * 3) points ahead to fit it (impacts smoothness)

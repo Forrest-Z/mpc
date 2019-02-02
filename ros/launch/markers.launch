@@ -1,0 +1,8 @@
+<?xml version="1.0"?>
+<launch>
+
+  <!-- Markers -->
+  <include file="$(find markers)/launch/markers.launch" />
+
+
+</launch>

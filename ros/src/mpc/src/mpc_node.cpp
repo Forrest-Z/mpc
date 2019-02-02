@@ -4,7 +4,7 @@
 
 #include <ros/ros.h>
 #include <ros/console.h>
-#include <std_msgs/Float32.h>
+#include <std_msgs/Float64.h>
 #include <visualization_msgs/Marker.h>
 #include <nav_msgs/Odometry.h>
 
@@ -32,13 +32,15 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
     m_throttle = 0;
 
     ///* Advertisers
-    m_pub_angle = m_nodehandle.advertise<std_msgs::Float32>(
-            "/mpc/angle",
-            1
+    m_pub_angle = m_nodehandle.advertise<std_msgs::Float64>(
+            "/commands/servo/position",
+            1,
+            true
     );
-    m_pub_throttle = m_nodehandle.advertise<std_msgs::Float32>(
+    m_pub_throttle = m_nodehandle.advertise<std_msgs::Float64>(
             "/mpc/throttle",
-            1
+            1,
+            true
     );
     if (m_debug) {
         m_pub_closest = m_nodehandle.advertise<visualization_msgs::Marker>(
@@ -55,8 +57,8 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
                 "/mpc/poly_cpp",
                 1
         );
-    }
 
+    }
 
     ///* Subscribers
     m_sub_centerline = m_nodehandle.subscribe(
@@ -170,6 +172,10 @@ void MPCControllerNode::pf_pose_odom_cb(const nav_msgs::Odometry & data) {
 }
 
 
+void MPCControllerNode::commands_servo_position_cb(const std_msgs::Float64 & data) {
+    m_commands_servo_position = data.data;
+}
+
 void MPCControllerNode::loop() {
     while (m_nodehandle.ok()) {
         m_time = ros::Time::now();
@@ -260,10 +266,22 @@ void MPCControllerNode::loop() {
             // Map the angle to the values used in Dzik
             m_steer = CENTER_IN_DZIK - steering_angle_in_radians;
 
+            if (m_steer < 0.0) {
+                ROS_WARN("Steer angle %.2f is below 0 -- clipping it to 0", m_steer);
+                m_steer = 0.0;   
+            } else if (m_steer > 1.0) {
+                ROS_WARN("Steer angle %.2f is greater than 1 -- clipping it to 1", m_steer);
+                m_steer = 1.0;
+            }
+
             // Publish the transformed angle
-            m_pub_angle.publish(m_steer);
+            std_msgs::Float64 steer_msg;
+            steer_msg.data = m_steer;
+            m_pub_angle.publish(steer_msg);
 
             if (m_debug) {
+                ROS_WARN("/commands/servo/position: %.2f   /mpc/angle: %.2f", m_commands_servo_position, m_steer);
+
                 std::vector<double> closest_vars;
                 for (size_t i=0; i<num_steps_OK; i++) {
                     closest_vars.push_back(xvals_vec[i]);

@@ -87,7 +87,8 @@ def get_waypoints(sparse):
 
 if __name__ == '__main__':
     # fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-35-23.csv'
-    fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-32-17.csv'
+    #fname = '/home/nvidia/MD_stuff/mpc/waypoints/wp-2018-12-18-17-32-17.csv'
+    fname = '/home/nvidia/MD_stuff/mpc/waypoints/wp-basement.csv'
     xs = []
     ys = []
     yaws = []
