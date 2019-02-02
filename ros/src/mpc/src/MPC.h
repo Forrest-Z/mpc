@@ -65,5 +65,5 @@ private:
     Indexes m_indexes;
 
     ///* Upper bound
-    const double SPEED_UPPERBOUND = 2.0;
+    const double SPEED_UPPERBOUND = 10.0;
 };
