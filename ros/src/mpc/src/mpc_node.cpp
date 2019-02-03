@@ -41,8 +41,18 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
             1
     );
     if (m_debug) {
+        m_pub_closest = m_nodehandle.advertise<visualization_msgs::Marker>(
+                "/mpc/closest_cpp",
+                1
+        );
+
         m_pub_next_pos = m_nodehandle.advertise<visualization_msgs::Marker>(
                 "/mpc/next_pos_cpp",
+                1
+        );
+
+        m_pub_poly = m_nodehandle.advertise<visualization_msgs::Marker>(
+                "/mpc/poly_cpp",
                 1
         );
     }
@@ -90,7 +100,8 @@ void MPCControllerNode::centerline_cb(const visualization_msgs::Marker & data) {
 visualization_msgs::Marker MPCControllerNode::get_marker(
         const std::vector<double> & vars,
         double pos_x_lat, double pos_y_lat,
-        double sin_psi_lat, double cos_psi_lat
+        double sin_psi_lat, double cos_psi_lat,
+        float red, float green, float blue
 
     ) {
     visualization_msgs::Marker marker;
@@ -112,10 +123,10 @@ visualization_msgs::Marker MPCControllerNode::get_marker(
     marker.pose.orientation.z = 0.0;
     marker.pose.orientation.w = 1.0;
 
-    marker.color.a = 0.7;
-    marker.color.r = 0.0f;
-    marker.color.g = 0.0f;
-    marker.color.b = 1.0f;
+    marker.color.a = 0.5;
+    marker.color.r = red;
+    marker.color.g = green;
+    marker.color.b = blue;
 
     marker.lifetime = ros::Duration();
 
@@ -126,10 +137,10 @@ visualization_msgs::Marker MPCControllerNode::get_marker(
         geometry_msgs::Point p;
         double x = vars[i];
         double y = vars[i+1];
-        x =  x * cos_psi_lat + y * sin_psi_lat;
-        y = -x * sin_psi_lat + y * cos_psi_lat;
-        p.x = x + pos_x_lat;
-        p.y = y + pos_y_lat;
+        double x_rot = x * cos_psi_lat - y * sin_psi_lat;
+        double y_rot = x * sin_psi_lat + y * cos_psi_lat;
+        p.x = x_rot + pos_x_lat;
+        p.y = y_rot + pos_y_lat;
         p.z = 0.0f;
         marker.points.push_back(p);
     }
@@ -170,36 +181,73 @@ void MPCControllerNode::loop() {
             double pos_y_lat = m_pos_y  + m_latency * (v_lat * sin(psi_lat));
 
             int closest_idx = find_closest(m_pts_x, m_pts_y, pos_x_lat, pos_y_lat);
-            size_t num_closest_points = POLY_DEGREE+1;
+
+            closest_idx -= (int)(0.1*NUM_STEPS_POLY); // TODO: check if good idea
+
             std::vector<double> closest_pts_x;
-            closest_pts_x.reserve(num_closest_points);
+            closest_pts_x.reserve(NUM_STEPS_POLY);
             std::vector<double> closest_pts_y;
-            closest_pts_y.reserve(num_closest_points);
-            for (size_t i=0; i < num_closest_points; i++) {
-                int idx = (closest_idx + i*STEPS_POLY) % m_pts_x.size();
+            closest_pts_y.reserve(NUM_STEPS_POLY);
+            for (size_t i=0; i < NUM_STEPS_POLY; i++) {
+                int idx = (closest_idx + i*STEP_POLY) % m_pts_x.size();
                 closest_pts_x.push_back(m_pts_x[idx]);
                 closest_pts_y.push_back(m_pts_y[idx]);
             }
 
             // Before we get the actuators, we need to calculate points in car's
             // coordinate system; these will be passed later on to polyfit
-            Eigen::VectorXd xvals(num_closest_points);
-            Eigen::VectorXd yvals(num_closest_points);
+            // TODO: make it more efficient
+            std::vector<double> xvals_vec;
+            std::vector<double> yvals_vec;
+
             double sin_psi_lat = sin(psi_lat);
             double cos_psi_lat = cos(psi_lat);
-            for (size_t i = 0; i < num_closest_points; i++) {
+
+            for (size_t i=0; i<NUM_STEPS_POLY; i++) {
                 double dx = closest_pts_x[i] - pos_x_lat;
                 double dy = closest_pts_y[i] - pos_y_lat;
 
                 // Rotation around the origin
-//                xvals[i] = dx * cos(-psi_lat) - dy * sin(-psi_lat);
-//                yvals[i] = dx * sin(-psi_lat) + dy * cos(-psi_lat);
-                xvals[i] =  dx * cos_psi_lat + dy * sin_psi_lat;
-                yvals[i] = -dx * sin_psi_lat + dy * cos_psi_lat;
+                double x_rot = dx * cos_psi_lat + dy * sin_psi_lat;
+                double y_rot = -dx * sin_psi_lat + dy * cos_psi_lat;
+
+                // Make sure it will be possible to fit the polynomial
+                if (i > POLY_DEGREE) {
+                    bool x_delta_too_low = (x_rot - xvals_vec[i-1] < X_DELTA_MIN_VALUE);
+                    if (x_delta_too_low) {
+                        ROS_WARN("X delta too low, breaking at %lu", i);
+
+                        // TODO: make cleaner
+                        // TODO: also, you should check if not U-turn
+//                        dx = closest_pts_x[NUM_STEPS_POLY-1] - pos_x_lat;
+//                        dy = closest_pts_y[NUM_STEPS_POLY-1] - pos_y_lat;
+//
+//                        // Rotation around the origin
+//                        x_rot = dx * cos_psi_lat + dy * sin_psi_lat;
+//                        y_rot = -dx * sin_psi_lat + dy * cos_psi_lat;
+//
+//                        xvals_vec.push_back(x_rot);
+//                        yvals_vec.push_back(y_rot);
+
+                        break;
+                    }
+                }
+
+                xvals_vec.push_back(x_rot);
+                yvals_vec.push_back(y_rot);
+            }
+
+            size_t num_steps_OK = xvals_vec.size();
+            Eigen::VectorXd xvals(num_steps_OK);
+            Eigen::VectorXd yvals(num_steps_OK);
+            for (size_t i=0; i < num_steps_OK; i++) {
+                xvals[i] = xvals_vec[i];
+                yvals[i] = yvals_vec[i];
             }
 
             // Here we calculate the fit to the points in *car's coordinate system*
-            Eigen::VectorXd coeffs = polyfit(xvals, yvals, 3);
+            Eigen::VectorXd coeffs = polyfit(xvals, yvals, POLY_DEGREE);
+            ROS_WARN("coeffs: %.2f   %.2f   %.2f   %.2f", coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
 
             // Now, we can calculate the cross track error
             double cte = polyeval(coeffs, 0);
@@ -207,8 +255,6 @@ void MPCControllerNode::loop() {
             // ... and psi's error
             double epsi = -atan(coeffs[1]);
 
-            ROS_WARN("closest_idx: %d", closest_idx);
-            ROS_WARN("closest_pts_x[0]: %.2f, closest_pts_y[0]: %.2f", closest_pts_x[0], closest_pts_y[0]);
             ROS_WARN("CTE: %.2f, ePsi: %.2f, psi: %.2f", cte, epsi, m_psi);
 
             // And now we're ready to calculate the actuators using the MPC
@@ -220,15 +266,30 @@ void MPCControllerNode::loop() {
             m_steer = vars[0];
             m_throttle = vars[1];
 
-            for (size_t i=2; i < vars.size(); i+=2) {
-                vars[i] = i*0.1;
-                vars[i+1] = polyeval(coeffs, i*0.1);
-            }
-
+            ROS_WARN("Steer: %.2f, throttle: %.2f", m_steer, m_throttle);
 
             if (m_debug) {
-                auto next_pos_marker = get_marker(vars, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat);
+                std::vector<double> closest_vars;
+                for (size_t i=0; i<num_steps_OK; i++) {
+                    closest_vars.push_back(xvals_vec[i]);
+                    closest_vars.push_back(yvals_vec[i]);
+                }
+
+                auto closest_marker = get_marker(closest_vars, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 1.0, 1.0, 1.0);
+                m_pub_closest.publish(closest_marker);
+
+                auto next_pos_marker = get_marker(vars, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 0.0, 0.0, 1.0);
                 m_pub_next_pos.publish(next_pos_marker);
+
+                std::vector<double> vars2;
+                vars2.push_back(0);
+                vars2.push_back(0);
+                for (double x=0; x < 2.1; x+=0.2) {
+                    vars2.push_back(x);
+                    vars2.push_back(polyeval(coeffs, x));
+                }
+                auto poly_marker = get_marker(vars2, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 0.7, 0.2, 0.1);
+                m_pub_poly.publish(poly_marker);
             }
 
             double delta_between_callbacks = (m_time.toSec() - m_old_time.toSec());

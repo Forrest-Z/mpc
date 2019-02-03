@@ -11,6 +11,9 @@ Eigen::VectorXd polyfit(Eigen::VectorXd & xvals, Eigen::VectorXd & yvals, int or
 double polyeval(Eigen::VectorXd coeffs, double x);
 
 
+double polyeval_diff(Eigen::VectorXd coeffs, double x);
+
+
 struct Params {
     size_t steps_ahead;
     double dt;

@@ -49,7 +49,7 @@ def get_marker(sparse):
     marker.scale.z = 0.1
 
     # marker color
-    marker.color.a = 0.9
+    marker.color.a = 0.3
     marker.color.r = 0.0
     marker.color.g = 1.0
     marker.color.b = 0.0
@@ -86,7 +86,8 @@ def get_waypoints(sparse):
 
 
 if __name__ == '__main__':
-    fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-35-23.csv'
+    # fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-35-23.csv'
+    fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-32-17.csv'
     xs = []
     ys = []
     yaws = []

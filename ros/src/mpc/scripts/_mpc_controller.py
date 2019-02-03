@@ -200,7 +200,7 @@ class MPCController:
             self.steer = result.x[-self.steps_ahead]
             self.throttle = result.x[-2*self.steps_ahead]
             x = np.arange(0, 2, 0.2)
-            self.next_pos_poly = np.c_[x, np.polyval(poly, x)]
+            self.poly = np.c_[x, np.polyval(poly, x)]
         else:
             print('Unsuccessful optimization')
 
@@ -209,7 +209,7 @@ class MPCController:
             'throttle': self.throttle,
             'cost': result.fun,
             'next_pos': self.next_pos,
-            'next_pos_poly': self.next_pos_poly,
+            'poly': self.poly,
         }
 
     def get_state0(self, v, cte, epsi, a, delta, poly):

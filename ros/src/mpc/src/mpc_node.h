@@ -31,6 +31,8 @@ private:
     ros::Publisher m_pub_angle;
     ros::Publisher m_pub_throttle;
     ros::Publisher m_pub_next_pos;
+    ros::Publisher m_pub_poly;
+    ros::Publisher m_pub_closest;
 
     ///* Subscribers for the readings of the lidar, and the second one: for an emergency stop signal
     ros::Subscriber m_sub_centerline;
@@ -48,7 +50,7 @@ private:
     void pf_pose_odom_cb(const nav_msgs::Odometry & data);
 
     ///* Other methods
-    visualization_msgs::Marker get_marker(const std::vector<double> & vars, double px_lat, double py_lat, double sin_psi_lat, double cos_psi_lat);
+    visualization_msgs::Marker get_marker(const std::vector<double> & vars, double px_lat, double py_lat, double sin_psi_lat, double cos_psi_lat, float red, float green, float blue);
 
     int find_closest(const std::vector<double> & pts_x, const std::vector<double> & pts_y, double pos_x, double pos_y);
 
@@ -77,7 +79,11 @@ private:
 
     ///* When fitting a degree=3 polynomial to the waypoints we're using
     ///* (STEPS_POLY * 3) points ahead to fit it (impacts smoothness)
-    static constexpr int STEPS_POLY = 15;
+    static constexpr int STEP_POLY = 1;
+
+    static constexpr double X_DELTA_MIN_VALUE = 0.0000001;
+
+    const size_t NUM_STEPS_POLY = 50;
 
     static constexpr int POLY_DEGREE = 3;
 
