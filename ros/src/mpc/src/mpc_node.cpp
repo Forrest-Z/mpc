@@ -182,7 +182,9 @@ void MPCControllerNode::loop() {
 
             int closest_idx = find_closest(m_pts_x, m_pts_y, pos_x_lat, pos_y_lat);
 
-            closest_idx -= (int)(0.1*NUM_STEPS_POLY); // TODO: check if good idea
+            // It pays to use `NUM_STEPS_BACK` points for fitting the polynomial
+            // (stabilizes the polynomial)
+            closest_idx -= NUM_STEPS_BACK;
 
             std::vector<double> closest_pts_x;
             closest_pts_x.reserve(NUM_STEPS_POLY);
@@ -263,10 +265,16 @@ void MPCControllerNode::loop() {
             auto vars = m_controller.Solve(state, coeffs);
 
             // Extract the actuator values
-            m_steer = vars[0];
-            m_throttle = vars[1];
+            double steering_angle_in_radians = vars[0];
+            double acceleration_in_meters_by_sec2 = vars[1];
 
-            ROS_WARN("Steer: %.2f, throttle: %.2f", m_steer, m_throttle);
+            ROS_WARN("Steer: %.2f [rad], throttle: %.2f [m/s/s]", steering_angle_in_radians, acceleration_in_meters_by_sec2);
+
+            // Map the angle to the values used in Dzik
+            m_steer = CENTER_IN_DZIK - steering_angle_in_radians;
+
+            // Publish the transformed angle
+            m_pub_angle.publish(m_steer);
 
             if (m_debug) {
                 std::vector<double> closest_vars;

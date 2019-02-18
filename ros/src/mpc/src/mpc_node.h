@@ -81,11 +81,18 @@ private:
     ///* (STEPS_POLY * 3) points ahead to fit it (impacts smoothness)
     static constexpr int STEP_POLY = 1;
 
-    static constexpr double X_DELTA_MIN_VALUE = 0.0000001;
+    ///* If you see: "coeffs: nan   nan   nan   nan" in the logger,
+    ///* it means that polyfit was unable to fit a polynomial which
+    ///* may be caused by the `X_DELTA_MIN_VALUE` being too low
+    static constexpr double X_DELTA_MIN_VALUE = 0.0001;
 
     const size_t NUM_STEPS_POLY = 50;
+    static constexpr int NUM_STEPS_BACK = 5;
 
     static constexpr int POLY_DEGREE = 3;
+
+    ///* The value of the steering angle that means "go straight" in Dzik
+    static constexpr double CENTER_IN_DZIK = 0.56;
 
 
 public:
