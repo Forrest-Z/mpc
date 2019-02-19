@@ -27,11 +27,11 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
 
     m_debug = params.debug;
 
-    // Actuators
-    m_steer = 0; // TODO: get steering angle from VESC
-    m_throttle = 0; // TODO: get throttle from VESC
+    ///* Actuators
+    m_steer = 0;
+    m_throttle = 0;
 
-    // Advertisers
+    ///* Advertisers
     m_pub_angle = m_nodehandle.advertise<std_msgs::Float32>(
             "/mpc/angle",
             1
@@ -58,7 +58,7 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
     }
 
 
-    // Subscribers
+    ///* Subscribers
     m_sub_centerline = m_nodehandle.subscribe(
             "/centerline",
             1,
@@ -218,19 +218,6 @@ void MPCControllerNode::loop() {
                     bool x_delta_too_low = (x_rot - xvals_vec[i-1] < X_DELTA_MIN_VALUE);
                     if (x_delta_too_low) {
                         ROS_WARN("X delta too low, breaking at %lu", i);
-
-                        // TODO: make cleaner
-                        // TODO: also, you should check if not U-turn
-//                        dx = closest_pts_x[NUM_STEPS_POLY-1] - pos_x_lat;
-//                        dy = closest_pts_y[NUM_STEPS_POLY-1] - pos_y_lat;
-//
-//                        // Rotation around the origin
-//                        x_rot = dx * cos_psi_lat + dy * sin_psi_lat;
-//                        y_rot = -dx * sin_psi_lat + dy * cos_psi_lat;
-//
-//                        xvals_vec.push_back(x_rot);
-//                        yvals_vec.push_back(y_rot);
-
                         break;
                     }
                 }
@@ -322,7 +309,7 @@ void MPCControllerNode::loop() {
 
 int MPCControllerNode::find_closest(const std::vector<double> & pts_x, const std::vector<double> & pts_y, double pos_x, double pos_y) {
     int closest_idx = -1;
-    double closest_dist = 999999999;
+    double closest_dist = 1.0e19;
     for (size_t i=0; i < pts_x.size(); i++) {
         double diff_x = (pts_x[i] - pos_x);
         double diff_y = (pts_y[i] - pos_y);
