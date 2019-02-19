@@ -2,6 +2,8 @@
 #include <cppad/cppad.hpp>
 #include <cppad/ipopt/solve.hpp>
 
+#include <ros/console.h>
+
 
 using CppAD::AD;
 
@@ -9,7 +11,7 @@ using CppAD::AD;
 // Fit a polynomial.
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
-Eigen::VectorXd polyfit(Eigen::VectorXd xvals, Eigen::VectorXd yvals, int order) {
+Eigen::VectorXd polyfit(Eigen::VectorXd & xvals, Eigen::VectorXd & yvals, int order) {
     assert(xvals.size() == yvals.size());
     assert(order >= 1 && order <= xvals.size() - 1);
     Eigen::MatrixXd A(xvals.size(), order + 1);
@@ -35,6 +37,15 @@ double polyeval(Eigen::VectorXd coeffs, double x) {
     double result = 0.0;
     for (int i = 0; i < coeffs.size(); i++) {
         result += coeffs[i] * pow(x, i);
+    }
+    return result;
+}
+
+
+double polyeval_diff(Eigen::VectorXd coeffs, double x) {
+    double result = 0.0;
+    for (int i = 1; i < coeffs.size(); i++) {
+        result += i * coeffs[i] * pow(x, i-1);
     }
     return result;
 }
@@ -132,13 +143,14 @@ public:
             AD<double> delta0 = vars[m_indexes.delta_start + t - 1];
             AD<double> a0 = vars[m_indexes.a_start + t - 1];
 
-            AD<double> f0 = m_coeffs[0] +
-                            m_coeffs[1] * x0 +
-                            m_coeffs[2] * x0 * x0 +
-                            m_coeffs[3] * x0 * x0 * x0;
-            AD<double> psides0 = CppAD::atan(m_coeffs[1] +
-                                             m_coeffs[2] * 2 * x0 +
-                                             m_coeffs[3] * 3 * x0 * x0);
+            AD<double> f0 = 0;
+            for (int i=0; i<m_coeffs.size(); i++)
+                f0 += m_coeffs[i] * CppAD::pow(x0, i);
+
+            AD<double> fdiff0 = 0;
+            for (int i=1; i<m_coeffs.size(); i++)
+                fdiff0 += i * m_coeffs[i] * CppAD::pow(x0, i-1);
+            AD<double> psides0 = CppAD::atan(fdiff0);
 
             // Here's `x` to get you started.
             // The idea here is to constraint this value to be 0.
@@ -249,7 +261,7 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     // options for IPOPT solver
     std::string options;
     // Uncomment this if you'd like more print information
-    options += "Integer print_level  0\n";
+    options += "Integer print_level  2\n";
     // NOTE: Setting sparse to true allows the solver to take advantage
     // of sparse routines, this makes the computation MUCH FASTER. If you
     // can uncomment 1 of these and see if it makes a difference or not but
@@ -274,17 +286,17 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
 
     // Cost
     auto cost = solution.obj_value;
-    std::cout << "Cost " << cost << "\n";
+    ROS_WARN("COST: %.2f, OK: %d", cost, ok);
 
     // {...} is shorthand for creating a vector, so auto x1 = {1.0,2.0}
     // creates a 2 element double vector.
-    return {
-            solution.x[m_indexes.delta_start], solution.x[m_indexes.a_start],
-            solution.x[m_indexes.x_start], solution.x[m_indexes.y_start],
-            solution.x[m_indexes.x_start + 1], solution.x[m_indexes.y_start + 1],
-            solution.x[m_indexes.x_start + 2], solution.x[m_indexes.y_start + 2],
-            solution.x[m_indexes.x_start + 3], solution.x[m_indexes.y_start + 3],
-            solution.x[m_indexes.x_start + 4], solution.x[m_indexes.y_start + 4],
-            solution.x[m_indexes.x_start + 5], solution.x[m_indexes.y_start + 5],
-    };
+    std::vector<double> result;
+    result.reserve(2 + 2*m_params.steps_ahead);
+    result.push_back(solution.x[m_indexes.delta_start]);
+    result.push_back(solution.x[m_indexes.a_start]);
+    for (size_t i=0; i < m_params.steps_ahead; i++) {
+        result.push_back(solution.x[m_indexes.x_start + i]);
+        result.push_back(solution.x[m_indexes.y_start + i]);
+    }
+    return result;
 }

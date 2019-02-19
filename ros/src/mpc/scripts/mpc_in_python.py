@@ -82,6 +82,12 @@ class MPCControllerNode:
                 Marker,
                 queue_size=queue_size,
             )
+            #  For publishing polyeval points
+            self.publishers['/mpc/poly'] = rospy.Publisher(
+                '/mpc/poly',
+                Marker,
+                queue_size=queue_size,
+            )
 
         rospy.init_node('~mpc_node_python')
 
@@ -111,15 +117,21 @@ class MPCControllerNode:
                     next_pos = mpc_results['next_pos']
                     rot_fn = lambda v: self.rot_euler(v, self.orient_euler)
                     rotated_next_pos = np.apply_along_axis(rot_fn, 1, next_pos)
-                    marker = self.get_marker(rotated_next_pos + self.position)
+                    marker = self.get_marker(rotated_next_pos + self.position, 1.0, 0.0, 0.0)
                     self.publishers['/mpc/next_pos'].publish(marker)
+
+                    poly = mpc_results['poly']
+                    rot_fn = lambda v: self.rot_euler(v, self.orient_euler)
+                    rotated_next_pos = np.apply_along_axis(rot_fn, 1, poly)
+                    marker = self.get_marker(rotated_next_pos + self.position, 1.0, 1.0, 0.0)
+                    self.publishers['/mpc/poly'].publish(marker)
 
                 elapsed = rospy.Time.now().to_sec() - start_time
                 rospy.loginfo('This took {:.4f}s'.format(elapsed))
                 start_time = rospy.Time.now().to_sec()
 
     @staticmethod
-    def get_marker(next_pos):
+    def get_marker(next_pos, red, green, blue):
         # TODO: an almost identical function is in markers_mode.py
         marker = Marker()
         marker.header.frame_id = '/map'
@@ -132,10 +144,10 @@ class MPCControllerNode:
         marker.scale.z = 0.1
 
         # marker color
-        marker.color.a = 0.7
-        marker.color.r = 1.0
-        marker.color.g = 0.0
-        marker.color.b = 0.0
+        marker.color.a = 0.5
+        marker.color.r = red
+        marker.color.g = green
+        marker.color.b = blue
 
         # marker orientaiton
         marker.pose.orientation.x = 0.0
