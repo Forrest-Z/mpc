@@ -86,8 +86,7 @@ def get_waypoints(sparse):
 
 
 if __name__ == '__main__':
-    # fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-35-23.csv'
-    fname = '/home/md/git-projects/mpc/waypoints/wp-2018-12-18-17-32-17.csv'
+    fname = rospy.get_param("/csv_file")
     xs = []
     ys = []
     yaws = []
@@ -109,6 +108,7 @@ if __name__ == '__main__':
     distance = 0.05
     sparse = sparse_trajectory(xs, ys, yaws, speeds, distance)
 
+    print('fname: "{}"'.format(fname))
     print('Original trajectory length:', len(xs))
     print('  Example:', xs[0], ys[0], yaws[0], speeds[0])
     print('Sparse trajectory (%.1fm) length:' % float(distance), len(sparse))
