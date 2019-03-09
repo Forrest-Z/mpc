@@ -1,5 +1,5 @@
 #include <math.h> /* floor, abs */
-#include <cmath> /* atan2 */
+#include <cmath> /* atan2, sqrt */
 #include <string>
 
 #include <ros/ros.h>
@@ -32,7 +32,7 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
     m_throttle = 0;
 
     ///* Advertisers
-    m_pub_angle = m_nodehandle.advertise<std_msgs::Float64>(
+    m_pub_commands_servo_position = m_nodehandle.advertise<std_msgs::Float64>(
             "/commands/servo/position",
             1,
             true
@@ -172,10 +172,6 @@ void MPCControllerNode::pf_pose_odom_cb(const nav_msgs::Odometry & data) {
 }
 
 
-void MPCControllerNode::commands_servo_position_cb(const std_msgs::Float64 & data) {
-    m_commands_servo_position = data.data;
-}
-
 void MPCControllerNode::loop() {
     while (m_nodehandle.ok()) {
         m_time = ros::Time::now();
@@ -204,9 +200,10 @@ void MPCControllerNode::loop() {
 
             // Before we get the actuators, we need to calculate points in car's
             // coordinate system; these will be passed later on to polyfit
-            // TODO: make it more efficient
             std::vector<double> xvals_vec;
             std::vector<double> yvals_vec;
+            xvals_vec.reserve(NUM_STEPS_POLY);
+            yvals_vec.reserve(NUM_STEPS_POLY);
 
             double sin_psi_lat = sin(psi_lat);
             double cos_psi_lat = cos(psi_lat);
@@ -219,11 +216,23 @@ void MPCControllerNode::loop() {
                 double x_rot = dx * cos_psi_lat + dy * sin_psi_lat;
                 double y_rot = -dx * sin_psi_lat + dy * cos_psi_lat;
 
-                // Make sure it will be possible to fit the polynomial
                 if (i > POLY_DEGREE) {
                     bool x_delta_too_low = (x_rot - xvals_vec[i-1] < X_DELTA_MIN_VALUE);
                     if (x_delta_too_low) {
-                        ROS_WARN("X delta too low, breaking at %lu", i);
+                        size_t num_steps_remaining = NUM_STEPS_POLY-i+1;
+                        ROS_WARN("X delta too low, breaking at %lu, num_steps_remaining: %lu", i, num_steps_remaining);
+
+                        // Fill out the rest of the points with fake waypoints
+                        double delta_x = xvals_vec[i-1] - xvals_vec[i-2];
+                        double delta_y = yvals_vec[i-1] - yvals_vec[i-2];
+                        delta_x = delta_x / num_steps_remaining;
+                        delta_y = delta_y / num_steps_remaining;
+
+                        for (size_t sub_i=1; sub_i<num_steps_remaining; sub_i++) {
+                            xvals_vec.push_back(xvals_vec[i-1] + sub_i * delta_x);
+                            yvals_vec.push_back(yvals_vec[i-1] + sub_i * delta_y);
+                        }
+
                         break;
                     }
                 }
@@ -232,10 +241,9 @@ void MPCControllerNode::loop() {
                 yvals_vec.push_back(y_rot);
             }
 
-            size_t num_steps_OK = xvals_vec.size();
-            Eigen::VectorXd xvals(num_steps_OK);
-            Eigen::VectorXd yvals(num_steps_OK);
-            for (size_t i=0; i < num_steps_OK; i++) {
+            Eigen::VectorXd xvals(NUM_STEPS_POLY);
+            Eigen::VectorXd yvals(NUM_STEPS_POLY);
+            for (size_t i=0; i < NUM_STEPS_POLY; i++) {
                 xvals[i] = xvals_vec[i];
                 yvals[i] = yvals_vec[i];
             }
@@ -261,56 +269,61 @@ void MPCControllerNode::loop() {
             double steering_angle_in_radians = vars[0];
             double acceleration_in_meters_by_sec2 = vars[1];
 
-            ROS_WARN("Steer: %.2f [rad], throttle: %.2f [m/s/s]", steering_angle_in_radians, acceleration_in_meters_by_sec2);
+            ROS_WARN("steer: %.2f [rad], throttle: %.2f [m/s/s]", steering_angle_in_radians, acceleration_in_meters_by_sec2);
 
             // Map the angle to the values used in Dzik
             m_steer = CENTER_IN_DZIK - steering_angle_in_radians;
 
             if (m_steer < 0.0) {
-                ROS_WARN("Steer angle %.2f is below 0 -- clipping it to 0", m_steer);
+                ROS_WARN("steer angle %.2f is below 0 -- clipping it to 0", m_steer);
                 m_steer = 0.0;   
             } else if (m_steer > 1.0) {
-                ROS_WARN("Steer angle %.2f is greater than 1 -- clipping it to 1", m_steer);
+                ROS_WARN("steer angle %.2f is greater than 1 -- clipping it to 1", m_steer);
                 m_steer = 1.0;
             }
 
             // Publish the transformed angle
             std_msgs::Float64 steer_msg;
             steer_msg.data = m_steer;
-            m_pub_angle.publish(steer_msg);
+            m_pub_commands_servo_position.publish(steer_msg);
 
             if (m_debug) {
-                ROS_WARN("/commands/servo/position: %.2f   /mpc/angle: %.2f", m_commands_servo_position, m_steer);
-
-                std::vector<double> closest_vars;
-                for (size_t i=0; i<num_steps_OK; i++) {
-                    closest_vars.push_back(xvals_vec[i]);
-                    closest_vars.push_back(yvals_vec[i]);
-                }
-
-                auto closest_marker = get_marker(closest_vars, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 1.0, 1.0, 1.0);
-                m_pub_closest.publish(closest_marker);
-
+                // First, publish the next points as predicted from MPC
                 auto next_pos_marker = get_marker(vars, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 0.0, 0.0, 1.0);
                 m_pub_next_pos.publish(next_pos_marker);
 
-                std::vector<double> vars2;
-                vars2.push_back(0);
-                vars2.push_back(0);
-                for (double x=0; x < 2.1; x+=0.2) {
-                    vars2.push_back(x);
-                    vars2.push_back(polyeval(coeffs, x));
+                // Now, publish the closest waypoints (those used for polyfit)
+                std::vector<double> closest_waypoints;
+                closest_waypoints.reserve(NUM_STEPS_POLY);
+                for (size_t i=0; i<NUM_STEPS_POLY; i++) {
+                    closest_waypoints.push_back(xvals_vec[i]);
+                    closest_waypoints.push_back(yvals_vec[i]);
                 }
-                auto poly_marker = get_marker(vars2, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 0.7, 0.2, 0.1);
+                auto closest_marker = get_marker(closest_waypoints, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 1.0, 1.0, 1.0);
+                m_pub_closest.publish(closest_marker);
+
+                // Now, publish markers that show the polynomial that was fit to the waypoints
+                std::vector<double> for_poly_marker;
+                for_poly_marker.push_back(0);
+                for_poly_marker.push_back(0);
+                for (double x=0; x < 2.1; x+=0.2) {
+                    for_poly_marker.push_back(x);
+                    for_poly_marker.push_back(polyeval(coeffs, x));
+                }
+                auto poly_marker = get_marker(for_poly_marker, pos_x_lat, pos_y_lat, sin_psi_lat, cos_psi_lat, 0.7, 0.2, 0.1);
                 m_pub_poly.publish(poly_marker);
             }
 
+            // Print out calculation times
             double delta_between_callbacks = (m_time.toSec() - m_old_time.toSec());
             double delta_within_callback = (ros::Time::now().toSec() - m_time.toSec());
             ROS_WARN(
                     "dt_bet_cb: %.3f[s] dt_in_cb: %.3f[s]",
                     delta_between_callbacks, delta_within_callback
             );
+
+            // Print out relevant attributes
+            ROS_WARN("m_speed: %.3f [m/s]", m_speed);
 
         } else {
             ROS_WARN(

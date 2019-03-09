@@ -3,7 +3,7 @@
 
   <!-- Markers -->
   <include file="$(find markers)/launch/markers.launch">
-    <arg name="csv_file" default="/home/nvidia/MD_stuff/mpc/waypoints/wp-basement.csv" />
+	  <arg name="csv_file" value="$(arg csv_file)" />
   </include>
 
 
