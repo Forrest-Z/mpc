@@ -1,3 +1,4 @@
+#include <cassert>
 #include "MPC.h"
 #include <cppad/cppad.hpp>
 #include <cppad/ipopt/solve.hpp>
@@ -11,7 +12,7 @@ using CppAD::AD;
 // Fit a polynomial.
 // Adapted from
 // https://github.com/JuliaMath/Polynomials.jl/blob/master/src/Polynomials.jl#L676-L716
-Eigen::VectorXd polyfit(Eigen::VectorXd & xvals, Eigen::VectorXd & yvals, int order) {
+Eigen::VectorXd polyfit(const Eigen::VectorXd & xvals, const Eigen::VectorXd & yvals, int order) {
     assert(xvals.size() == yvals.size());
     assert(order >= 1 && order <= xvals.size() - 1);
     Eigen::MatrixXd A(xvals.size(), order + 1);
@@ -33,7 +34,7 @@ Eigen::VectorXd polyfit(Eigen::VectorXd & xvals, Eigen::VectorXd & yvals, int or
 
 
 // Evaluate a polynomial.
-double polyeval(Eigen::VectorXd coeffs, double x) {
+double polyeval(const Eigen::VectorXd coeffs, double x) {
     double result = 0.0;
     for (int i = 0; i < coeffs.size(); i++) {
         result += coeffs[i] * pow(x, i);
@@ -42,7 +43,7 @@ double polyeval(Eigen::VectorXd coeffs, double x) {
 }
 
 
-double polyeval_diff(Eigen::VectorXd coeffs, double x) {
+double polyeval_diff(const Eigen::VectorXd coeffs, double x) {
     double result = 0.0;
     for (int i = 1; i < coeffs.size(); i++) {
         result += i * coeffs[i] * pow(x, i-1);
@@ -62,10 +63,6 @@ double polyeval_diff(Eigen::VectorXd coeffs, double x) {
 //
 // This is the length from front to CoG that has a similar radius.
 double Lf() { return 0.325; }
-
-// Both the reference cross track and orientation errors are 0.
-// The reference velocity is set to 40 mph.
-double ref_v() { return 1; }
 
 // Delta constraint (on the steering angle)
 double delta_constraint() { return 25; }
@@ -91,23 +88,23 @@ public:
         fg[0] = 0;
 
         // The part of the cost based on the reference state.
-        for (size_t t = 0; t < m_params.steps_ahead; t++) {
+        for (size_t t=0; t<m_params.steps_ahead; t++) {
             fg[0] += m_params.cte_coeff * CppAD::pow(vars[m_indexes.cte_start + t], 2);
             fg[0] += m_params.epsi_coeff * CppAD::pow(vars[m_indexes.epsi_start + t], 2);
-            fg[0] += m_params.speed_coeff * CppAD::pow(vars[m_indexes.v_start + t] - ref_v(), 2);
         }
 
         // Minimize the use of actuators.
-        for (size_t t = 0; t < m_params.steps_ahead - 1; t++) {
+        for (size_t t=0; t<m_params.steps_ahead-1; t++) {
+            fg[0] += m_params.speed_coeff * CppAD::pow(vars[m_indexes.v_start + t] - m_params.ref_v, 2);
             fg[0] += m_params.steer_coeff * CppAD::pow(vars[m_indexes.delta_start + t], 2);
-            fg[0] += m_params.acc_coeff * CppAD::pow(vars[m_indexes.a_start + t], 2);
         }
 
         // Minimize the value gap between sequential actuations.
-        for (size_t t = 0; t < m_params.steps_ahead - 2; t++) {
+        for (size_t t = 0; t < m_params.steps_ahead-2; t++) {
             fg[0] += m_params.consec_steer_coeff * CppAD::pow(vars[m_indexes.delta_start + t + 1] - vars[m_indexes.delta_start + t], 2);
-            fg[0] += m_params.consec_acc_coeff * CppAD::pow(vars[m_indexes.a_start + t + 1] - vars[m_indexes.a_start + t], 2);
+            fg[0] += m_params.consec_speed_coeff * CppAD::pow(vars[m_indexes.v_start + t + 1] - vars[m_indexes.v_start + t], 2);
         }
+
 
         // Initial constraints
         //
@@ -117,7 +114,6 @@ public:
         fg[1 + m_indexes.x_start] = vars[m_indexes.x_start];
         fg[1 + m_indexes.y_start] = vars[m_indexes.y_start];
         fg[1 + m_indexes.psi_start] = vars[m_indexes.psi_start];
-        fg[1 + m_indexes.v_start] = vars[m_indexes.v_start];
         fg[1 + m_indexes.cte_start] = vars[m_indexes.cte_start];
         fg[1 + m_indexes.epsi_start] = vars[m_indexes.epsi_start];
 
@@ -127,7 +123,8 @@ public:
             AD<double> x1 = vars[m_indexes.x_start + t];
             AD<double> y1 = vars[m_indexes.y_start + t];
             AD<double> psi1 = vars[m_indexes.psi_start + t];
-            AD<double> v1 = vars[m_indexes.v_start + t];
+            // No longer needed:
+            // AD<double> v1 = vars[m_indexes.v_start + t];
             AD<double> cte1 = vars[m_indexes.cte_start + t];
             AD<double> epsi1 = vars[m_indexes.epsi_start + t];
 
@@ -141,7 +138,6 @@ public:
 
             // Only consider the actuation at time t.
             AD<double> delta0 = vars[m_indexes.delta_start + t - 1];
-            AD<double> a0 = vars[m_indexes.a_start + t - 1];
 
             AD<double> f0 = 0;
             for (int i=0; i<m_coeffs.size(); i++)
@@ -150,6 +146,7 @@ public:
             AD<double> fdiff0 = 0;
             for (int i=1; i<m_coeffs.size(); i++)
                 fdiff0 += i * m_coeffs[i] * CppAD::pow(x0, i-1);
+
             AD<double> psides0 = CppAD::atan(fdiff0);
 
             // Here's `x` to get you started.
@@ -159,14 +156,12 @@ public:
             // x_[t+1] = x[t] + v[t] * cos(psi[t]) * dt
             // y_[t+1] = y[t] + v[t] * sin(psi[t]) * dt
             // psi_[t+1] = psi[t] + v[t] / Lf * delta[t] * dt
-            // v_[t+1] = v[t] + a[t] * dt
             // cte[t+1] = f(x[t]) - y[t] + v[t] * sin(epsi[t]) * dt
             // epsi[t+1] = psi[t] - psides[t] + v[t] * delta[t] / Lf * dt
             fg[1 + m_indexes.x_start + t] = x1 - (x0 + v0 * CppAD::cos(psi0) * m_params.dt);
             fg[1 + m_indexes.y_start + t] = y1 - (y0 + v0 * CppAD::sin(psi0) * m_params.dt);
             // "... - (psi0 ..." in contrast to the quizzes
             fg[1 + m_indexes.psi_start + t] = psi1 - (psi0 - v0 * delta0 / Lf() * m_params.dt);
-            fg[1 + m_indexes.v_start + t] = v1 - (v0 + a0 * m_params.dt);
             fg[1 + m_indexes.cte_start + t] = cte1 - (f0 - y0 + (v0 * CppAD::sin(epsi0) * m_params.dt));
             // "... - v0 ..." in contrast to the quizzes
             fg[1 + m_indexes.epsi_start + t] = epsi1 - (psi0 - psides0 - v0 * delta0 / Lf() * m_params.dt);
@@ -178,14 +173,19 @@ public:
 // MPC class definition implementation.
 //
 MPC::MPC(const Params & params) : m_params(params) {
+    // Non-actuators
     m_indexes.x_start = 0;
     m_indexes.y_start = m_indexes.x_start + params.steps_ahead;
     m_indexes.psi_start = m_indexes.y_start + params.steps_ahead;
-    m_indexes.v_start = m_indexes.psi_start + params.steps_ahead;
-    m_indexes.cte_start = m_indexes.v_start + params.steps_ahead;
+    m_indexes.cte_start = m_indexes.psi_start+ params.steps_ahead;
     m_indexes.epsi_start = m_indexes.cte_start + params.steps_ahead;
+
+    // Actuators
     m_indexes.delta_start = m_indexes.epsi_start + params.steps_ahead;
-    m_indexes.a_start = m_indexes.delta_start + params.steps_ahead - 1;
+    m_indexes.v_start = m_indexes.delta_start + params.steps_ahead - 1;
+
+    // A check on speed
+    assert(params.ref_v < SPEED_UPPERBOUND);
 }
 
 MPC::~MPC() {}
@@ -197,12 +197,11 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     double x = state[0];
     double y = state[1];
     double psi = state[2];
-    double v = state[3];
-    double cte = state[4];
-    double epsi = state[5];
+    double cte = state[3];
+    double epsi = state[4];
 
-    size_t n_vars = m_params.steps_ahead * 6 + (m_params.steps_ahead - 1) * 2;
-    size_t n_constraints = m_params.steps_ahead * 6;
+    size_t n_vars = m_params.steps_ahead * 5 + (m_params.steps_ahead - 1) * 2;
+    size_t n_constraints = m_params.steps_ahead * 5;
 
     // Initial value of the independent variables.
     // Should be 0 besides initial state.
@@ -219,14 +218,14 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     }
 
     // BEGIN: CONSTRAINTS ON THE ACTUATORS
-    for (size_t i = m_indexes.delta_start; i < m_indexes.a_start; i++) {
+    for (size_t i=m_indexes.delta_start; i<m_indexes.v_start; i++) {
         // 1 degree = 0.017453 radians
         vars_lowerbound[i] = -0.017453 * delta_constraint();
         vars_upperbound[i] = 0.017453 * delta_constraint();
     }
-    for (size_t i = m_indexes.a_start; i < n_vars; i++) {
-        vars_lowerbound[i] = -1.0;
-        vars_upperbound[i] = 1.0;
+    for (size_t i=m_indexes.v_start; i<n_vars; i++) {
+        vars_lowerbound[i] = 0.0;
+        vars_upperbound[i] = SPEED_UPPERBOUND;
     }
     // END: CONSTRAINTS ON THE ACTUATORS
 
@@ -235,21 +234,19 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     Dvector constraints_lowerbound(n_constraints);
     Dvector constraints_upperbound(n_constraints);
 
-    for (size_t i = 0; i < n_constraints; i++) {
+    for (size_t i=0; i<n_constraints; i++) {
         constraints_lowerbound[i] = 0;
         constraints_upperbound[i] = 0;
     }
     constraints_lowerbound[m_indexes.x_start] = x;
     constraints_lowerbound[m_indexes.y_start] = y;
     constraints_lowerbound[m_indexes.psi_start] = psi;
-    constraints_lowerbound[m_indexes.v_start] = v;
     constraints_lowerbound[m_indexes.cte_start] = cte;
     constraints_lowerbound[m_indexes.epsi_start] = epsi;
 
     constraints_upperbound[m_indexes.x_start] = x;
     constraints_upperbound[m_indexes.y_start] = y;
     constraints_upperbound[m_indexes.psi_start] = psi;
-    constraints_upperbound[m_indexes.v_start] = v;
     constraints_upperbound[m_indexes.cte_start] = cte;
     constraints_upperbound[m_indexes.epsi_start] = epsi;
 
@@ -293,7 +290,7 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     std::vector<double> result;
     result.reserve(2 + 2*m_params.steps_ahead);
     result.push_back(solution.x[m_indexes.delta_start]);
-    result.push_back(solution.x[m_indexes.a_start]);
+    result.push_back(solution.x[m_indexes.v_start]);
     for (size_t i=0; i < m_params.steps_ahead; i++) {
         result.push_back(solution.x[m_indexes.x_start + i]);
         result.push_back(solution.x[m_indexes.y_start + i]);
