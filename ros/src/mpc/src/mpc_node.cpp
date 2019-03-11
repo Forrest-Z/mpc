@@ -1,5 +1,5 @@
 #include <math.h> /* floor, abs */
-#include <cmath> /* atan2, sqrt */
+#include <cmath> /* atan2, M_PI */
 #include <string>
 
 #include <ros/ros.h>
@@ -26,19 +26,20 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
     m_psi_OK = false;
 
     m_debug = params.debug;
+    m_go_flag = false;
 
     ///* Actuators
-    m_steer = 0;
-    m_throttle = 0;
+    m_steer = CENTER_IN_DZIK;
+    m_rpm = 0;
 
-    ///* Advertisers
+    ///* Publishers
     m_pub_commands_servo_position = m_nodehandle.advertise<std_msgs::Float64>(
             "/commands/servo/position",
             1,
             true
     );
-    m_pub_throttle = m_nodehandle.advertise<std_msgs::Float64>(
-            "/mpc/throttle",
+    m_pub_commands_motor_speed = m_nodehandle.advertise<std_msgs::Float64>(
+            "/commands/motor/speed",
             1,
             true
     );
@@ -79,6 +80,12 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
             &MPCControllerNode::pf_pose_odom_cb,
             this
     );
+    m_sub_signal_go = m_nodehandle.subscribe(
+            "/signal/go",
+            10,
+            &MPCControllerNode::signal_go_cb,
+            this
+    );
 }
 
 
@@ -96,6 +103,17 @@ void MPCControllerNode::centerline_cb(const visualization_msgs::Marker & data) {
         m_pts_y.push_back(p.y);
     }
     m_pts_OK = true;
+}
+
+
+void MPCControllerNode::signal_go_cb(const std_msgs::UInt16 & data) {
+    if (data.data == 0) {
+        ROS_WARN("Emergency stop!");
+        m_go_flag = false;
+    } else if (data.data == 2309){
+        ROS_WARN("GO!");
+        m_go_flag = true;
+    }
 }
 
 
@@ -177,10 +195,10 @@ void MPCControllerNode::loop() {
         m_time = ros::Time::now();
 
         if (m_pts_OK and m_speed_OK and m_pos_OK and m_psi_OK) {
-            double v_lat = m_speed + m_latency * m_throttle;
+            double v_lat = m_speed;// + m_latency * m_throttle; TODO: you can collect m_throttle from /odom
             double psi_lat = m_psi - m_latency * (v_lat * m_steer / Lf());
-            double pos_x_lat = m_pos_x  + m_latency * (v_lat * cos(psi_lat));
-            double pos_y_lat = m_pos_y  + m_latency * (v_lat * sin(psi_lat));
+            double pos_x_lat = m_pos_x + m_latency * (v_lat * cos(psi_lat));
+            double pos_y_lat = m_pos_y + m_latency * (v_lat * sin(psi_lat));
 
             int closest_idx = find_closest(m_pts_x, m_pts_y, pos_x_lat, pos_y_lat);
 
@@ -261,15 +279,15 @@ void MPCControllerNode::loop() {
             ROS_WARN("CTE: %.2f, ePsi: %.2f, psi: %.2f", cte, epsi, m_psi);
 
             // And now we're ready to calculate the actuators using the MPC
-            Eigen::VectorXd state(6);
-            state << 0, 0, 0, v_lat, cte, epsi;
+            Eigen::VectorXd state(5);
+            state << 0, 0, 0, cte, epsi;
             auto vars = m_controller.Solve(state, coeffs);
 
             // Extract the actuator values
             double steering_angle_in_radians = vars[0];
-            double acceleration_in_meters_by_sec2 = vars[1];
+            double speed_in_meters_by_second = vars[1];
 
-            ROS_WARN("steer: %.2f [rad], throttle: %.2f [m/s/s]", steering_angle_in_radians, acceleration_in_meters_by_sec2);
+            ROS_WARN("steer: %.2f [rad], speed: %.2f [m/s]", steering_angle_in_radians, speed_in_meters_by_second);
 
             // Map the angle to the values used in Dzik
             m_steer = CENTER_IN_DZIK - steering_angle_in_radians;
@@ -282,10 +300,25 @@ void MPCControllerNode::loop() {
                 m_steer = 1.0;
             }
 
+            // Map the speed to the values used in Dzik
+            m_rpm = speed_in_meters_by_second / 2 / M_PI / WHEEL_RADIUS_IN_DZIK; // [1/s]
+            m_rpm *= 60; // [1/min = RPM]
+            m_rpm *= 10; // TODO: I had to multiply by 10 to get values as they really are in Dzik
+            ROS_WARN("speed_in_Dzik: %.2f [RPM]", m_rpm);
+
+            if (!m_go_flag) {
+                m_steer = CENTER_IN_DZIK;
+                m_rpm = 0;
+            } else {
+                ROS_WARN("GO flag is 'true'");
+            }
+
             // Publish the transformed angle
-            std_msgs::Float64 steer_msg;
-            steer_msg.data = m_steer;
-            m_pub_commands_servo_position.publish(steer_msg);
+            std_msgs::Float64 msg_placeholder;
+            msg_placeholder.data = m_steer;
+            m_pub_commands_servo_position.publish(msg_placeholder);
+            msg_placeholder.data = m_rpm;
+            m_pub_commands_motor_speed.publish(msg_placeholder);
 
             if (m_debug) {
                 // First, publish the next points as predicted from MPC
@@ -366,17 +399,17 @@ int main(int argc, char **argv) {
     if (argc == num_expected_args ) {
         params.steps_ahead = atoi(argv[1]);
         params.dt = atof(argv[2]);
+        params.ref_v = atof(argv[3]);
 
-        params.latency = atof(argv[3]);
+        params.latency = atof(argv[4]);
 
-        params.cte_coeff = atof(argv[4]);
-        params.epsi_coeff = atof(argv[5]);
-        params.speed_coeff = atof(argv[6]);
-        params.acc_coeff = atof(argv[7]);
+        params.cte_coeff = atof(argv[5]);
+        params.epsi_coeff = atof(argv[6]);
+        params.speed_coeff = atof(argv[7]);
         params.steer_coeff = atof(argv[8]);
 
-        params.consec_acc_coeff = atof(argv[9]);
-        params.consec_steer_coeff = atof(argv[10]);
+        params.consec_steer_coeff = atof(argv[9]);
+        params.consec_speed_coeff = atof(argv[10]);
 
         std::string debug_msg(argv[11]);
         if (debug_msg == "true") {
@@ -405,10 +438,9 @@ int main(int argc, char **argv) {
               << " cte_coeff: " << params.cte_coeff
               << " epsi_coeff: " << params.epsi_coeff
               << " speed_coeff: " << params.speed_coeff
-              << " acc_coeff: " << params.acc_coeff
               << " steer_coeff: " << params.steer_coeff
-              << " consec_acc_coeff" << params.consec_acc_coeff
               << " consec_steer_coeff: " << params.consec_steer_coeff
+              << " consec_speed_coeff" << params.consec_speed_coeff
               << " debug: " << params.debug
               << "\n";
 

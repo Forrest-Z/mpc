@@ -29,7 +29,8 @@ private:
 
     ///* Publisher for the ESC, and the second one: for the servo
     ros::Publisher m_pub_commands_servo_position;
-    ros::Publisher m_pub_throttle;
+    ros::Publisher m_pub_commands_motor_speed;
+    // Publishers for debugging
     ros::Publisher m_pub_next_pos;
     ros::Publisher m_pub_poly;
     ros::Publisher m_pub_closest;
@@ -38,6 +39,7 @@ private:
     ros::Subscriber m_sub_centerline;
     ros::Subscriber m_sub_odom;
     ros::Subscriber m_sub_pf_pose_odom;
+    ros::Subscriber m_sub_signal_go;
 
     ///* The Model Predictive controller
     MPC m_controller;
@@ -48,6 +50,8 @@ private:
     void odom_cb(const nav_msgs::Odometry & data);
 
     void pf_pose_odom_cb(const nav_msgs::Odometry & data);
+
+    void signal_go_cb(const std_msgs::UInt16 & data);
 
     ///* Other methods
     visualization_msgs::Marker get_marker(const std::vector<double> & vars, double px_lat, double py_lat, double sin_psi_lat, double cos_psi_lat, float red, float green, float blue);
@@ -69,12 +73,12 @@ private:
     double m_psi;
     bool m_psi_OK;
 
-    bool m_debug;
-
     double m_steer;
-    double m_throttle;
+    double m_rpm;
 
     ///* Other member attributes
+    bool m_debug;
+    bool m_go_flag;
     double m_latency;
 
     ///* When fitting a degree=3 polynomial to the waypoints we're using
@@ -93,6 +97,8 @@ private:
 
     ///* The value of the steering angle that means "go straight" in Dzik
     static constexpr double CENTER_IN_DZIK = 0.56;
+    ///* Dzik's wheel radius
+    static constexpr double WHEEL_RADIUS_IN_DZIK = 0.055; // [m]
 
 
 public:
