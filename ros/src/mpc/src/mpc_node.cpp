@@ -25,6 +25,11 @@ MPCControllerNode::MPCControllerNode(const ros::NodeHandle & nodehandle, const P
     m_speed_OK = false;
     m_psi_OK = false;
 
+    m_ref_v = params.ref_v;
+    m_ref_v_alpha = params.ref_v_alpha;
+    m_poly_degree = params.poly_degree;
+    m_num_steps_poly = params.num_steps_poly;
+
     m_debug = params.debug;
     m_go_flag = false;
 
@@ -207,10 +212,10 @@ void MPCControllerNode::loop() {
             closest_idx -= NUM_STEPS_BACK;
 
             std::vector<double> closest_pts_x;
-            closest_pts_x.reserve(NUM_STEPS_POLY);
+            closest_pts_x.reserve(m_num_steps_poly);
             std::vector<double> closest_pts_y;
-            closest_pts_y.reserve(NUM_STEPS_POLY);
-            for (size_t i=0; i < NUM_STEPS_POLY; i++) {
+            closest_pts_y.reserve(m_num_steps_poly);
+            for (size_t i=0; i < m_num_steps_poly; i++) {
                 int idx = (closest_idx + i*STEP_POLY) % m_pts_x.size();
                 closest_pts_x.push_back(m_pts_x[idx]);
                 closest_pts_y.push_back(m_pts_y[idx]);
@@ -220,13 +225,14 @@ void MPCControllerNode::loop() {
             // coordinate system; these will be passed later on to polyfit
             std::vector<double> xvals_vec;
             std::vector<double> yvals_vec;
-            xvals_vec.reserve(NUM_STEPS_POLY);
-            yvals_vec.reserve(NUM_STEPS_POLY);
+            xvals_vec.reserve(m_num_steps_poly);
+            yvals_vec.reserve(m_num_steps_poly);
 
             double sin_psi_lat = sin(psi_lat);
             double cos_psi_lat = cos(psi_lat);
+            double fraction_steps_OK = 1.0;
 
-            for (size_t i=0; i<NUM_STEPS_POLY; i++) {
+            for (size_t i=0; i<m_num_steps_poly; i++) {
                 double dx = closest_pts_x[i] - pos_x_lat;
                 double dy = closest_pts_y[i] - pos_y_lat;
 
@@ -234,10 +240,11 @@ void MPCControllerNode::loop() {
                 double x_rot = dx * cos_psi_lat + dy * sin_psi_lat;
                 double y_rot = -dx * sin_psi_lat + dy * cos_psi_lat;
 
-                if (i > POLY_DEGREE) {
+                if (i > m_poly_degree) {
                     bool x_delta_too_low = (x_rot - xvals_vec[i-1] < X_DELTA_MIN_VALUE);
                     if (x_delta_too_low) {
-                        size_t num_steps_remaining = NUM_STEPS_POLY-i+1;
+                        size_t num_steps_remaining = m_num_steps_poly-i+1;
+                        fraction_steps_OK = 1.0 * (i+1) / m_num_steps_poly;
                         ROS_WARN("X delta too low, breaking at %lu, num_steps_remaining: %lu", i, num_steps_remaining);
 
                         // Fill out the rest of the points with fake waypoints
@@ -259,15 +266,17 @@ void MPCControllerNode::loop() {
                 yvals_vec.push_back(y_rot);
             }
 
-            Eigen::VectorXd xvals(NUM_STEPS_POLY);
-            Eigen::VectorXd yvals(NUM_STEPS_POLY);
-            for (size_t i=0; i < NUM_STEPS_POLY; i++) {
+            double new_ref_v = m_ref_v_alpha * m_ref_v + (1-m_ref_v_alpha) * (fraction_steps_OK * m_ref_v);
+
+            Eigen::VectorXd xvals(m_num_steps_poly);
+            Eigen::VectorXd yvals(m_num_steps_poly);
+            for (size_t i=0; i < m_num_steps_poly; i++) {
                 xvals[i] = xvals_vec[i];
                 yvals[i] = yvals_vec[i];
             }
 
             // Here we calculate the fit to the points in *car's coordinate system*
-            Eigen::VectorXd coeffs = polyfit(xvals, yvals, POLY_DEGREE);
+            Eigen::VectorXd coeffs = polyfit(xvals, yvals, m_poly_degree);
             ROS_WARN("coeffs: %.2f   %.2f   %.2f   %.2f", coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
 
             // Now, we can calculate the cross track error
@@ -281,7 +290,7 @@ void MPCControllerNode::loop() {
             // And now we're ready to calculate the actuators using the MPC
             Eigen::VectorXd state(5);
             state << 0, 0, 0, cte, epsi;
-            auto vars = m_controller.Solve(state, coeffs);
+            auto vars = m_controller.Solve(state, coeffs, new_ref_v);
 
             // Extract the actuator values
             double steering_angle_in_radians = vars[0];
@@ -327,8 +336,8 @@ void MPCControllerNode::loop() {
 
                 // Now, publish the closest waypoints (those used for polyfit)
                 std::vector<double> closest_waypoints;
-                closest_waypoints.reserve(NUM_STEPS_POLY);
-                for (size_t i=0; i<NUM_STEPS_POLY; i++) {
+                closest_waypoints.reserve(m_num_steps_poly);
+                for (size_t i=0; i<m_num_steps_poly; i++) {
                     closest_waypoints.push_back(xvals_vec[i]);
                     closest_waypoints.push_back(yvals_vec[i]);
                 }
@@ -394,24 +403,37 @@ int main(int argc, char **argv) {
 
     Params params;
 
-    int num_expected_args = 12;
+    int num_expected_args = 15;
 
     if (argc == num_expected_args ) {
         params.steps_ahead = atoi(argv[1]);
         params.dt = atof(argv[2]);
         params.ref_v = atof(argv[3]);
+        params.ref_v_alpha = atof(argv[4]);
+        if (params.ref_v_alpha > 1.0 or params.ref_v_alpha < 0.0) {
+            std::cout << "The ref_v_alpha argument should be a float"
+                      << " between 0.0 and 1.0 (inclusive) and you"
+                      << " passed "
+                      << params.ref_v_alpha
+                      << "\n";
+            return 1;
+        }
 
-        params.latency = atof(argv[4]);
+        params.latency = atof(argv[5]);
 
-        params.cte_coeff = atof(argv[5]);
-        params.epsi_coeff = atof(argv[6]);
-        params.speed_coeff = atof(argv[7]);
-        params.steer_coeff = atof(argv[8]);
+        params.cte_coeff = atof(argv[6]);
+        params.epsi_coeff = atof(argv[7]);
+        params.speed_coeff = atof(argv[8]);
+        params.steer_coeff = atof(argv[9]);
 
-        params.consec_steer_coeff = atof(argv[9]);
-        params.consec_speed_coeff = atof(argv[10]);
+        params.consec_steer_coeff = atof(argv[10]);
+        params.consec_speed_coeff = atof(argv[11]);
 
-        std::string debug_msg(argv[11]);
+        params.poly_degree = atoi(argv[12]);
+        params.num_steps_poly = atoi(argv[13]);
+
+        std::string debug_msg(argv[14]);
+
         if (debug_msg == "true") {
             params.debug = true;
         } else if (debug_msg == "false") {
@@ -419,7 +441,7 @@ int main(int argc, char **argv) {
         } else {
             std::cout << "The debug argument should either be \"true\" or \"false\""
                       << " and you passed "
-                      << argv[11]
+                      << argv[14]
                       << "\n";
             return 1;
         }
@@ -434,13 +456,17 @@ int main(int argc, char **argv) {
 
     std::cout << "steps_ahead: " << params.steps_ahead
               << " dt: " << params.dt
+              << " ref_v: " << params.ref_v
+              << " ref_v_alpha: " << params.ref_v_alpha
               << " latency: " << params.latency << "[s]"
               << " cte_coeff: " << params.cte_coeff
               << " epsi_coeff: " << params.epsi_coeff
               << " speed_coeff: " << params.speed_coeff
               << " steer_coeff: " << params.steer_coeff
               << " consec_steer_coeff: " << params.consec_steer_coeff
-              << " consec_speed_coeff" << params.consec_speed_coeff
+              << " consec_speed_coeff: " << params.consec_speed_coeff
+              << " poly degree: " << params.poly_degree
+              << " num_steps_poly: " << params.num_steps_poly
               << " debug: " << params.debug
               << "\n";
 

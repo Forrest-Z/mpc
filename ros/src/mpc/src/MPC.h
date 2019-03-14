@@ -18,6 +18,7 @@ struct Params {
     size_t steps_ahead;
     double dt;
     double ref_v;
+    double ref_v_alpha;
 
     double latency;
 
@@ -28,6 +29,9 @@ struct Params {
 
     double consec_speed_coeff;
     double consec_steer_coeff;
+
+    int poly_degree;
+    int num_steps_poly;
 
     bool debug;
 };
@@ -58,7 +62,7 @@ public:
 
     // Solve the model given an initial state and polynomial coefficients.
     // Return the first actuations.
-    std::vector<double> Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs);
+    std::vector<double> Solve(const Eigen::VectorXd state, const Eigen::VectorXd coeffs, const double new_ref_v);
 
 private:
     Params m_params;

@@ -73,12 +73,17 @@ public:
     // Fitted polynomial coefficients
     Eigen::VectorXd m_coeffs;
 
+    // Reference speed
+    double m_ref_v;
+
     Params m_params;
     Indexes m_indexes;
 
-    FG_eval(Eigen::VectorXd coeffs, const Params & params, const Indexes & indexes)
-        : m_coeffs(coeffs), m_params(params), m_indexes(indexes)
-    {}
+    FG_eval(Eigen::VectorXd coeffs, const Params & params, const Indexes & indexes, const double ref_v)
+        : m_coeffs(coeffs), m_params(params), m_indexes(indexes) {
+
+        m_ref_v = ref_v;
+    }
 
     typedef CPPAD_TESTVECTOR(AD<double>) ADvector;
 
@@ -95,7 +100,7 @@ public:
 
         // Minimize the use of actuators.
         for (size_t t=0; t<m_params.steps_ahead-1; t++) {
-            fg[0] += m_params.speed_coeff * CppAD::pow(vars[m_indexes.v_start + t] - m_params.ref_v, 2);
+            fg[0] += m_params.speed_coeff * CppAD::pow(vars[m_indexes.v_start + t] - m_ref_v, 2);
             fg[0] += m_params.steer_coeff * CppAD::pow(vars[m_indexes.delta_start + t], 2);
         }
 
@@ -190,7 +195,7 @@ MPC::MPC(const Params & params) : m_params(params) {
 
 MPC::~MPC() {}
 
-std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
+std::vector<double> MPC::Solve(const Eigen::VectorXd state, const Eigen::VectorXd coeffs, const double new_ref_v) {
     bool ok = true;
     typedef CPPAD_TESTVECTOR(double) Dvector;
 
@@ -251,7 +256,7 @@ std::vector<double> MPC::Solve(Eigen::VectorXd state, Eigen::VectorXd coeffs) {
     constraints_upperbound[m_indexes.epsi_start] = epsi;
 
     // Object that computes objective and constraints
-    FG_eval fg_eval(coeffs, m_params, m_indexes);
+    FG_eval fg_eval(coeffs, m_params, m_indexes, new_ref_v);
 
     // NOTE: You don't have to worry about these options
     //
