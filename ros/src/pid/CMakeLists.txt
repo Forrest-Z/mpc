@@ -2,10 +2,7 @@ cmake_minimum_required(VERSION 2.8.3)
 project(pid)
 
 ## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
-
-set(CXX_FLAGS "-Wall")
-set(CMAKE_CXX_FLAGS "${CXX_FLAGS}")
+#add_compile_options(-std=c++11)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -13,8 +10,6 @@ set(CMAKE_CXX_FLAGS "${CXX_FLAGS}")
 find_package(
     catkin REQUIRED COMPONENTS
     rospy
-    roscpp
-    nav_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -151,9 +146,9 @@ include_directories(
 # add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
- target_link_libraries(
-  ${catkin_LIBRARIES}
-)
+# target_link_libraries(
+#  ${catkin_LIBRARIES}
+#)
 
 #############
 ## Install ##

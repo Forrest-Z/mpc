@@ -1,6 +1,7 @@
 STEPS_AHEAD=20
 DT=0.05
 REF_V=4.5
+REF_V_ALPHA=0.9
 
 LATENCY=0.05
 
@@ -13,12 +14,16 @@ STEER_COEFF=2
 CONSEC_SPEED_COEFF=5
 CONSEC_STEER_COEFF=1000
 
+POLY_DEGREE=2
+NUM_STEPS_POLY=50
+
 DEBUG=true
 
 rosrun mpc mpc_node_cpp \
     $STEPS_AHEAD \
     $DT \
     $REF_V \
+    $REF_V_ALPHA \
     $LATENCY \
     $CTE_COEFF \
     $EPSI_COEF \
@@ -27,4 +32,6 @@ rosrun mpc mpc_node_cpp \
     $STEER_COEFF \
     $CONSEC_STEER_COEFF \
     $CONSEC_SPEED_COEFF \
+    $POLY_DEGREE \
+    $NUM_STEPS_POLY \
     $DEBUG

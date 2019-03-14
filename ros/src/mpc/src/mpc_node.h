@@ -76,6 +76,12 @@ private:
     double m_steer;
     double m_rpm;
 
+    double m_ref_v;
+    double m_ref_v_alpha;
+
+    size_t m_poly_degree;
+    size_t m_num_steps_poly;
+
     ///* Other member attributes
     bool m_debug;
     bool m_go_flag;
@@ -90,10 +96,7 @@ private:
     ///* may be caused by the `X_DELTA_MIN_VALUE` being too low
     static constexpr double X_DELTA_MIN_VALUE = 0.001;
 
-    const size_t NUM_STEPS_POLY = 50;
     static constexpr int NUM_STEPS_BACK = 5;
-
-    static constexpr int POLY_DEGREE = 3;
 
     ///* The value of the steering angle that means "go straight" in Dzik
     static constexpr double CENTER_IN_DZIK = 0.56;
