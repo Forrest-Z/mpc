@@ -1,6 +1,7 @@
 #include <math.h> /* floor, abs */
 #include <cmath> /* atan2, M_PI */
 #include <string>
+#include <sstream>
 
 #include <ros/ros.h>
 #include <ros/console.h>
@@ -277,7 +278,11 @@ void MPCControllerNode::loop() {
 
             // Here we calculate the fit to the points in *car's coordinate system*
             Eigen::VectorXd coeffs = polyfit(xvals, yvals, m_poly_degree);
-            ROS_WARN("coeffs: %.2f   %.2f   %.2f   %.2f", coeffs[0], coeffs[1], coeffs[2], coeffs[3]);
+            std::stringstream ss;
+            ss << "coeffs: ";
+            for (size_t c=0; c<m_poly_degree+1; c++)
+                ss << std::setprecision(3) << coeffs[c] << " ";
+            ROS_WARN("%s", ss.str().c_str());
 
             // Now, we can calculate the cross track error
             double cte = polyeval(coeffs, 0);
@@ -405,7 +410,7 @@ int main(int argc, char **argv) {
 
     int num_expected_args = 15;
 
-    if (argc == num_expected_args ) {
+    if (argc == num_expected_args) {
         params.steps_ahead = atoi(argv[1]);
         params.dt = atof(argv[2]);
         params.ref_v = atof(argv[3]);
